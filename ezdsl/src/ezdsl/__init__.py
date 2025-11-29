@@ -18,6 +18,11 @@ from ezdsl.core import (
     NodeType,
     RefType,
     UnionType,
+    GenericType,
+    TypeVarType,
+
+    # Type alias registry
+    register_type_alias,
 
     # Serialization
     to_dict,
@@ -48,6 +53,11 @@ __all__ = [
     "NodeType",
     "RefType",
     "UnionType",
+    "GenericType",
+    "TypeVarType",
+
+    # Type alias registry
+    "register_type_alias",
 
     # Serialization
     "to_dict",

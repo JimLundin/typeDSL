@@ -52,6 +52,19 @@ class UnionType(TypeDef, tag="union"):
     options: tuple[TypeDef, ...]
 
 
+class GenericType(TypeDef, tag="generic"):
+    """Represents a generic/parameterized type."""
+    name: str
+    origin: str  # Name of the generic origin (e.g., "list", "dict", "Ref")
+    args: tuple[TypeDef, ...]
+
+
+class TypeVarType(TypeDef, tag="typevar"):
+    """Represents a type variable with optional bounds."""
+    name: str
+    bounds: tuple[TypeDef, ...] | None = None
+
+
 # =============================================================================
 # Core Types
 # =============================================================================
@@ -80,6 +93,48 @@ class Node[T]:
         dataclass(frozen=frozen, eq=True, repr=True)(cls)
         cls._tag = tag or cls.__name__.lower()
         Node._registry[cls._tag] = cls
+
+
+# =============================================================================
+# Type Alias Registry
+# =============================================================================
+
+from typing import Callable
+
+# Registry for PEP 695 type alias extractors
+# Maps type alias name to extraction function
+_TYPE_ALIAS_REGISTRY: dict[str, Callable[[Any, tuple], TypeDef]] = {}
+
+
+def register_type_alias(name: str, extractor: Callable[[Any, tuple], TypeDef]) -> None:
+    """
+    Register a custom type alias extractor.
+
+    Args:
+        name: The name of the type alias (e.g., "Child", "NodeRef")
+        extractor: Function that takes (origin, args) and returns a TypeDef
+    """
+    _TYPE_ALIAS_REGISTRY[name] = extractor
+
+
+def _extract_child(origin: Any, args: tuple) -> TypeDef:
+    """Extract Child[T] = Node[T] | Ref[Node[T]]"""
+    if args:
+        inner = extract_type(args[0])
+        return UnionType((NodeType(inner), RefType(NodeType(inner))))
+    raise ValueError("Child requires a type argument")
+
+
+def _extract_node_ref(origin: Any, args: tuple) -> TypeDef:
+    """Extract NodeRef[T] = Ref[Node[T]]"""
+    if args:
+        return RefType(NodeType(extract_type(args[0])))
+    raise ValueError("NodeRef requires a type argument")
+
+
+# Register built-in type aliases
+register_type_alias("Child", _extract_child)
+register_type_alias("NodeRef", _extract_node_ref)
 
 
 # =============================================================================
@@ -161,32 +216,60 @@ def from_json(s: str) -> Node | Ref | TypeDef:
 
 def extract_type(py_type: Any) -> TypeDef:
     """Convert Python type annotation to TypeDef."""
+    from typing import TypeVar
+
     origin = get_origin(py_type)
     args = get_args(py_type)
 
-    # PEP 695 type aliases
+    # Handle TypeVar with bounds
+    if isinstance(py_type, TypeVar):
+        bounds = getattr(py_type, "__constraints__", None)
+        if bounds:
+            return TypeVarType(
+                name=py_type.__name__,
+                bounds=tuple(extract_type(b) for b in bounds)
+            )
+        bound = getattr(py_type, "__bound__", None)
+        if bound is not None:
+            return TypeVarType(
+                name=py_type.__name__,
+                bounds=(extract_type(bound),)
+            )
+        return TypeVarType(name=py_type.__name__, bounds=None)
+
+    # PEP 695 type aliases - check registry first
     if origin is not None and hasattr(origin, "__value__"):
         name = getattr(origin, "__name__", None)
-        if name == "Child" and args:
-            inner = extract_type(args[0])
-            return UnionType((NodeType(inner), RefType(NodeType(inner))))
-        if name == "NodeRef" and args:
-            return RefType(NodeType(extract_type(args[0])))
+        if name and name in _TYPE_ALIAS_REGISTRY:
+            return _TYPE_ALIAS_REGISTRY[name](origin, args)
 
+    # Primitives
     if py_type in PRIMITIVES:
         return PrimitiveType(py_type)
 
+    # Node types
     if origin is not None and isinstance(origin, type) and issubclass(origin, Node):
         return NodeType(extract_type(args[0]) if args else PrimitiveType(type(None)))
 
     if isinstance(py_type, type) and issubclass(py_type, Node):
         return NodeType(_extract_node_returns(py_type))
 
+    # Ref types
     if origin is Ref:
         return RefType(extract_type(args[0]) if args else PrimitiveType(type(None)))
 
+    # Union types
     if origin is Union:
         return UnionType(tuple(extract_type(a) for a in args))
+
+    # Generic types (fallback for other parameterized types)
+    if origin is not None and args:
+        origin_name = getattr(origin, "__name__", str(origin))
+        return GenericType(
+            name=f"{origin_name}[{', '.join(str(a) for a in args)}]",
+            origin=origin_name,
+            args=tuple(extract_type(a) for a in args)
+        )
 
     raise ValueError(f"Cannot extract type from: {py_type}")
 
