@@ -16,6 +16,7 @@ from typing import dataclass_transform, get_args, get_origin, Any, ClassVar
 # Type Definition Base
 # =============================================================================
 
+
 @dataclass_transform(frozen_default=True)
 class TypeDef:
     """Base for type definitions."""
@@ -23,11 +24,11 @@ class TypeDef:
     _tag: ClassVar[str]
     _namespace: ClassVar[str]
     _registry: ClassVar[dict[str, type[TypeDef]]] = {}
-    _custom_types: ClassVar[dict[type, type[TypeDef]]] = {}  # Maps Python types to TypeDef classes
+    _custom_types: ClassVar[dict[type, type[TypeDef]]] = (
+        {}
+    )  # Maps Python types to TypeDef classes
 
-    def __init_subclass__(cls, tag: str | None = None, namespace: str | None = None, **kwargs):
-        super().__init_subclass__(**kwargs)
-
+    def __init_subclass__(cls, tag: str | None = None, namespace: str | None = None):
         # Always convert to frozen dataclass
         dataclass(frozen=True)(cls)
 
@@ -39,8 +40,7 @@ class TypeDef:
         cls._tag = f"{namespace}.{base_tag}" if namespace else base_tag
 
         # Check for collisions
-        if cls._tag in TypeDef._registry:
-            existing = TypeDef._registry[cls._tag]
+        if existing := TypeDef._registry.get(cls._tag):
             if existing is not cls:
                 raise ValueError(
                     f"Tag '{cls._tag}' already registered to {existing}. "
@@ -55,7 +55,7 @@ class TypeDef:
         python_type: type | None = None,
         *,
         tag: str | None = None,
-        namespace: str = "custom"
+        namespace: str = "custom",
     ) -> type[TypeDef] | Any:
         """
         Register a custom type with the type system.
@@ -90,6 +90,7 @@ class TypeDef:
             ... class Matrix:
             ...     pass
         """
+
         def _create_typedef(py_type: type) -> type[TypeDef]:
             """Create and register a TypeDef for the given Python type."""
             # Determine the tag
@@ -117,7 +118,9 @@ class TypeDef:
             }
 
             # Create the class - type() will call __init_subclass__ with our kwargs
-            typedef_cls = type(typedef_name, (TypeDef,), class_dict, tag=base_tag, namespace=namespace)
+            typedef_cls = type(
+                typedef_name, (TypeDef,), class_dict, tag=base_tag, namespace=namespace
+            )
 
             # Register the mapping
             cls._custom_types[py_type] = typedef_cls
@@ -126,7 +129,7 @@ class TypeDef:
 
         # If called without arguments as a decorator: @TypeDef.register
         if python_type is not None:
-            typedef = _create_typedef(python_type)
+            _create_typedef(python_type)
             # When used as decorator, return the original class unchanged
             # This allows the marker class to still be used normally
             return python_type
@@ -157,34 +160,31 @@ class TypeDef:
 # Primitive Types (Concrete)
 # =============================================================================
 
+
 class IntType(TypeDef, tag="int", namespace="std"):
     """Integer type."""
-    pass
 
 
 class FloatType(TypeDef, tag="float", namespace="std"):
     """Floating point type."""
-    pass
 
 
 class StrType(TypeDef, tag="str", namespace="std"):
     """String type."""
-    pass
 
 
 class BoolType(TypeDef, tag="bool", namespace="std"):
     """Boolean type."""
-    pass
 
 
 class NoneType(TypeDef, tag="none", namespace="std"):
     """None/null type."""
-    pass
 
 
 # =============================================================================
 # Container Types (Concrete)
 # =============================================================================
+
 
 class ListType(TypeDef, tag="list", namespace="std"):
     """
@@ -192,6 +192,7 @@ class ListType(TypeDef, tag="list", namespace="std"):
 
     Example: list[int] → ListType(element=IntType())
     """
+
     element: TypeDef
 
 
@@ -201,6 +202,7 @@ class DictType(TypeDef, tag="dict", namespace="std"):
 
     Example: dict[str, int] → DictType(key=StrType(), value=IntType())
     """
+
     key: TypeDef
     value: TypeDef
 
@@ -209,12 +211,14 @@ class DictType(TypeDef, tag="dict", namespace="std"):
 # Domain Types
 # =============================================================================
 
+
 class NodeType(TypeDef, tag="node", namespace="std"):
     """
     AST Node type with return type.
 
     Example: Node[float] → NodeType(returns=FloatType())
     """
+
     returns: TypeDef
 
 
@@ -224,6 +228,7 @@ class RefType(TypeDef, tag="ref", namespace="std"):
 
     Example: Ref[Node[int]] → RefType(target=NodeType(returns=IntType()))
     """
+
     target: TypeDef
 
 
@@ -233,6 +238,7 @@ class UnionType(TypeDef, tag="union", namespace="std"):
 
     Example: int | str → UnionType(options=(IntType(), StrType()))
     """
+
     options: tuple[TypeDef, ...]
 
 
@@ -248,6 +254,7 @@ class TypeParameter(TypeDef, tag="param", namespace="std"):
         - class Foo[T: int]: ...    # T is bounded (must be int or subtype)
         - type Pair[T] = tuple[T, T]  # T is a type parameter in the alias
     """
+
     name: str
     bound: TypeDef | None = None  # Upper bound constraint (e.g., T: int)
 
@@ -255,6 +262,7 @@ class TypeParameter(TypeDef, tag="param", namespace="std"):
 # =============================================================================
 # Type Parameter Substitution
 # =============================================================================
+
 
 def _substitute_type_params(type_expr: Any, substitutions: dict[Any, Any]) -> Any:
     """

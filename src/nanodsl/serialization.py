@@ -8,7 +8,7 @@ their serialized representations (dict/JSON).
 from __future__ import annotations
 
 from dataclasses import fields as dc_fields
-from typing import get_origin, Any
+from typing import Any
 import json
 
 from nanodsl.nodes import Node, Ref
@@ -49,7 +49,7 @@ def from_dict(data: dict, registry: dict[str, type] = None) -> Node | Ref | Type
     tag = data["tag"]
 
     if tag == "ref":
-        return Ref(id=data["id"])
+        return Ref[Any](id=data["id"])
 
     # Try Node registry first, then TypeDef
     registry = registry or Node._registry
