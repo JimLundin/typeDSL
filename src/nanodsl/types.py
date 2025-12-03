@@ -19,23 +19,13 @@ from typing import dataclass_transform, get_args, get_origin, Any, ClassVar, Cal
 
 @dataclass(frozen=True)
 class ExternalTypeRecord:
-    """Record for external type registration (function style)."""
+    """Record for external type registration."""
 
     python_type: type
     module: str  # Full module path, e.g., "pandas.core.frame"
     name: str  # Class name, e.g., "DataFrame"
-    tag: str
     encode: Callable[[Any], dict]
     decode: Callable[[dict], Any]
-
-
-@dataclass(frozen=True)
-class CustomTypeRecord:
-    """Record for custom type registration (decorator style)."""
-
-    python_type: type
-    tag: str
-    # encode/decode are methods on the class, not stored here
 
 
 # =============================================================================
@@ -50,7 +40,6 @@ class TypeDef:
     _tag: ClassVar[str]
     _registry: ClassVar[dict[str, type[TypeDef]]] = {}
     _external_types: ClassVar[dict[type, ExternalTypeRecord]] = {}
-    _custom_types: ClassVar[dict[type, CustomTypeRecord]] = {}
 
     def __init_subclass__(cls, tag: str | None = None):
         # Always convert to frozen dataclass
