@@ -27,25 +27,20 @@ class Node[T]:
     """Base for AST nodes. T is return type."""
 
     _tag: ClassVar[str]
-    _namespace: ClassVar[str]
     _registry: ClassVar[dict[str, type[Node[Any]]]] = {}
 
-    def __init_subclass__(cls, tag: str | None = None, namespace: str | None = None):
+    def __init_subclass__(cls, tag: str | None = None):
         dataclass(frozen=True)(cls)
 
-        # Store namespace and base tag
-        cls._namespace = namespace or ""
-        base_tag = tag or cls.__name__.lower().removesuffix("node")
-
-        # Create full namespaced tag
-        cls._tag = f"{namespace}.{base_tag}" if namespace else base_tag
+        # Determine tag
+        cls._tag = tag or cls.__name__.lower().removesuffix("node")
 
         # Check for collisions
         if existing := Node._registry.get(cls._tag):
             if existing is not cls:
                 raise ValueError(
                     f"Tag '{cls._tag}' already registered to {existing}. "
-                    f"Choose a different tag or namespace."
+                    f"Choose a different tag."
                 )
 
         Node._registry[cls._tag] = cls

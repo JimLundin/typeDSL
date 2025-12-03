@@ -80,7 +80,7 @@ class TestCustomTypeRegistration:
         # Use TypeDef.register decorator
         TypeDef.register(MyType)
         assert TypeDef.get_registered_type(MyType) is not None
-        assert TypeDef.get_registered_type(MyType)._tag == "custom.mytype"
+        assert TypeDef.get_registered_type(MyType)._tag == "mytype"
 
     def test_get_unregistered_type(self):
         """Test getting an unregistered type returns None."""
@@ -98,13 +98,13 @@ class TestCustomTypeExtraction:
         """Test extracting DataFrame type."""
         result = extract_type(DataFrame)
         assert isinstance(result, DataFrameType)
-        assert result._tag == "custom.dataframe"
+        assert result._tag == "dataframe"
 
     def test_extract_matrix_type(self):
         """Test extracting Matrix type."""
         result = extract_type(Matrix)
         assert isinstance(result, MatrixType)
-        assert result._tag == "custom.matrix"
+        assert result._tag == "matrix"
 
     def test_extract_node_with_custom_return_type(self):
         """Test extracting a Node with custom return type."""
@@ -136,23 +136,23 @@ class TestCustomTypeNodeSchema:
         schema = node_schema(FetchData)
 
         assert schema["tag"] == "fetch_data"
-        assert schema["returns"] == {"tag": "custom.dataframe"}
+        assert schema["returns"] == {"tag": "dataframe"}
         assert len(schema["fields"]) == 1
         assert schema["fields"][0]["name"] == "query"
-        assert schema["fields"][0]["type"] == {"tag": "std.str"}
+        assert schema["fields"][0]["type"] == {"tag": "str"}
 
     def test_filter_data_schema(self):
         """Test schema for FilterData node with custom type field."""
         schema = node_schema(FilterData)
 
         assert schema["tag"] == "filter_data"
-        assert schema["returns"] == {"tag": "custom.dataframe"}
+        assert schema["returns"] == {"tag": "dataframe"}
 
         # Find the source field
         source_field = next(f for f in schema["fields"] if f["name"] == "source")
         assert source_field["type"] == {
-            "tag": "std.node",
-            "returns": {"tag": "custom.dataframe"},
+            "tag": "node",
+            "returns": {"tag": "dataframe"},
         }
 
     def test_to_matrix_schema(self):
@@ -160,13 +160,13 @@ class TestCustomTypeNodeSchema:
         schema = node_schema(ToMatrix)
 
         assert schema["tag"] == "to_matrix"
-        assert schema["returns"] == {"tag": "custom.matrix"}
+        assert schema["returns"] == {"tag": "matrix"}
 
         # Find the df field
         df_field = next(f for f in schema["fields"] if f["name"] == "df")
         assert df_field["type"] == {
-            "tag": "std.node",
-            "returns": {"tag": "custom.dataframe"},
+            "tag": "node",
+            "returns": {"tag": "dataframe"},
         }
 
 
@@ -177,11 +177,11 @@ class TestCustomTypeSerialization:
         """Test serializing DataFrameType."""
         df_type = DataFrameType()
         result = to_dict(df_type)
-        assert result == {"tag": "custom.dataframe"}
+        assert result == {"tag": "dataframe"}
 
     def test_deserialize_dataframe_type(self):
         """Test deserializing DataFrameType."""
-        data = {"tag": "custom.dataframe"}
+        data = {"tag": "dataframe"}
         result = from_dict(data)
         assert isinstance(result, DataFrameType)
 
@@ -189,11 +189,11 @@ class TestCustomTypeSerialization:
         """Test serializing MatrixType."""
         matrix_type = MatrixType()
         result = to_dict(matrix_type)
-        assert result == {"tag": "custom.matrix"}
+        assert result == {"tag": "matrix"}
 
     def test_deserialize_matrix_type(self):
         """Test deserializing MatrixType."""
-        data = {"tag": "custom.matrix"}
+        data = {"tag": "matrix"}
         result = from_dict(data)
         assert isinstance(result, MatrixType)
 
@@ -236,7 +236,7 @@ class TestComplexCustomTypeExamples:
         matrix = ToMatrix(df=filtered)
 
         schema = node_schema(ToMatrix)
-        assert schema["returns"] == {"tag": "custom.matrix"}
+        assert schema["returns"] == {"tag": "matrix"}
 
     def test_matrix_operations(self):
         """Test operations on Matrix types."""
@@ -249,5 +249,5 @@ class TestComplexCustomTypeExamples:
         result: Node[Matrix] = MatrixMultiply(left=matrix1, right=matrix2)
 
         schema = node_schema(MatrixMultiply)
-        assert schema["returns"] == {"tag": "custom.matrix"}
+        assert schema["returns"] == {"tag": "matrix"}
         assert len(schema["fields"]) == 2

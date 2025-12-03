@@ -22,29 +22,24 @@ class TypeDef:
     """Base for type definitions."""
 
     _tag: ClassVar[str]
-    _namespace: ClassVar[str]
     _registry: ClassVar[dict[str, type[TypeDef]]] = {}
     _custom_types: ClassVar[dict[type, type[TypeDef]]] = (
         {}
     )  # Maps Python types to TypeDef classes
 
-    def __init_subclass__(cls, tag: str | None = None, namespace: str | None = None):
+    def __init_subclass__(cls, tag: str | None = None):
         # Always convert to frozen dataclass
         dataclass(frozen=True)(cls)
 
-        # Store namespace and base tag
-        cls._namespace = namespace or ""
-        base_tag = tag or cls.__name__.lower().removesuffix("type")
-
-        # Create full namespaced tag
-        cls._tag = f"{namespace}.{base_tag}" if namespace else base_tag
+        # Determine tag
+        cls._tag = tag or cls.__name__.lower().removesuffix("type")
 
         # Check for collisions
         if existing := TypeDef._registry.get(cls._tag):
             if existing is not cls:
                 raise ValueError(
                     f"Tag '{cls._tag}' already registered to {existing}. "
-                    f"Choose a different tag or namespace."
+                    f"Choose a different tag."
                 )
 
         TypeDef._registry[cls._tag] = cls
@@ -55,7 +50,6 @@ class TypeDef:
         python_type: type | None = None,
         *,
         tag: str | None = None,
-        namespace: str = "custom",
     ) -> type[TypeDef] | Any:
         """
         Register a custom type with the type system.
@@ -67,7 +61,6 @@ class TypeDef:
         Args:
             python_type: The Python class to register. If None, returns a decorator.
             tag: Optional tag name. Defaults to lowercase class name.
-            namespace: Namespace for the type. Defaults to "custom".
 
         Returns:
             If used as decorator: returns the original class unchanged
@@ -76,8 +69,8 @@ class TypeDef:
         Examples:
             # Register an existing type (e.g., pandas DataFrame)
             >>> import pandas as pd
-            >>> TypeDef.register(pd.DataFrame)  # tag="custom.dataframe"
-            >>> TypeDef.register(pd.DataFrame, tag="df")  # tag="custom.df"
+            >>> TypeDef.register(pd.DataFrame)  # tag="dataframe"
+            >>> TypeDef.register(pd.DataFrame, tag="df")  # tag="df"
 
             # Use as decorator for marker classes
             >>> @TypeDef.register
@@ -94,18 +87,17 @@ class TypeDef:
         def _create_typedef(py_type: type) -> type[TypeDef]:
             """Create and register a TypeDef for the given Python type."""
             # Determine the tag
-            base_tag = tag or py_type.__name__.lower()
+            type_tag = tag or py_type.__name__.lower()
 
             # Check if already registered
             if py_type in cls._custom_types:
                 existing = cls._custom_types[py_type]
-                full_tag = f"{namespace}.{base_tag}" if namespace else base_tag
                 # If same tag, it's idempotent
-                if existing._tag == full_tag:
+                if existing._tag == type_tag:
                     return existing
                 raise ValueError(
                     f"Type {py_type} already registered with tag '{existing._tag}'. "
-                    f"Cannot re-register with tag '{full_tag}'."
+                    f"Cannot re-register with tag '{type_tag}'."
                 )
 
             # Create TypeDef subclass dynamically
@@ -119,7 +111,7 @@ class TypeDef:
 
             # Create the class - type() will call __init_subclass__ with our kwargs
             typedef_cls = type(
-                typedef_name, (TypeDef,), class_dict, tag=base_tag, namespace=namespace
+                typedef_name, (TypeDef,), class_dict, tag=type_tag
             )
 
             # Register the mapping
@@ -161,23 +153,23 @@ class TypeDef:
 # =============================================================================
 
 
-class IntType(TypeDef, tag="int", namespace="std"):
+class IntType(TypeDef, tag="int"):
     """Integer type."""
 
 
-class FloatType(TypeDef, tag="float", namespace="std"):
+class FloatType(TypeDef, tag="float"):
     """Floating point type."""
 
 
-class StrType(TypeDef, tag="str", namespace="std"):
+class StrType(TypeDef, tag="str"):
     """String type."""
 
 
-class BoolType(TypeDef, tag="bool", namespace="std"):
+class BoolType(TypeDef, tag="bool"):
     """Boolean type."""
 
 
-class NoneType(TypeDef, tag="none", namespace="std"):
+class NoneType(TypeDef, tag="none"):
     """None/null type."""
 
 
@@ -186,7 +178,7 @@ class NoneType(TypeDef, tag="none", namespace="std"):
 # =============================================================================
 
 
-class ListType(TypeDef, tag="list", namespace="std"):
+class ListType(TypeDef, tag="list"):
     """
     List type with element type.
 
@@ -196,7 +188,7 @@ class ListType(TypeDef, tag="list", namespace="std"):
     element: TypeDef
 
 
-class DictType(TypeDef, tag="dict", namespace="std"):
+class DictType(TypeDef, tag="dict"):
     """
     Dictionary type with key and value types.
 
@@ -212,7 +204,7 @@ class DictType(TypeDef, tag="dict", namespace="std"):
 # =============================================================================
 
 
-class NodeType(TypeDef, tag="node", namespace="std"):
+class NodeType(TypeDef, tag="node"):
     """
     AST Node type with return type.
 
@@ -222,7 +214,7 @@ class NodeType(TypeDef, tag="node", namespace="std"):
     returns: TypeDef
 
 
-class RefType(TypeDef, tag="ref", namespace="std"):
+class RefType(TypeDef, tag="ref"):
     """
     Reference type pointing to another type.
 
@@ -232,7 +224,7 @@ class RefType(TypeDef, tag="ref", namespace="std"):
     target: TypeDef
 
 
-class UnionType(TypeDef, tag="union", namespace="std"):
+class UnionType(TypeDef, tag="union"):
     """
     Union of multiple types.
 
@@ -242,7 +234,7 @@ class UnionType(TypeDef, tag="union", namespace="std"):
     options: tuple[TypeDef, ...]
 
 
-class TypeParameter(TypeDef, tag="param", namespace="std"):
+class TypeParameter(TypeDef, tag="param"):
     """
     Type parameter in PEP 695 syntax.
 
