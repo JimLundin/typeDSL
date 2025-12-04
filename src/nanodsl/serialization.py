@@ -7,44 +7,34 @@ their serialized representations (dict/JSON).
 
 from __future__ import annotations
 
-from dataclasses import fields as dc_fields
 from typing import Any
 import json
 
 from nanodsl.nodes import Node, Ref
 from nanodsl.types import TypeDef
+from nanodsl.adapters import JSONAdapter
 
 # =============================================================================
 # Serialization
 # =============================================================================
+
+# Module-level adapter instance
+_adapter = JSONAdapter()
 
 
 def to_dict(obj: Node[Any] | Ref[Any] | TypeDef) -> dict:
     """Serialize to dict."""
     if isinstance(obj, Ref):
         return {"tag": "ref", "id": obj.id}
-
-    tag = getattr(type(obj), "_tag", None)
-    if tag is None:
-        raise ValueError(f"No tag for {type(obj)}")
-
-    result = {"tag": tag}
-    for field in dc_fields(obj):
-        result[field.name] = _serialize_value(getattr(obj, field.name))
-    return result
+    elif isinstance(obj, Node):
+        return _adapter.serialize_node(obj)
+    elif isinstance(obj, TypeDef):
+        return _adapter.serialize_typedef(obj)
+    else:
+        raise ValueError(f"Cannot serialize {type(obj)}")
 
 
-def _serialize_value(value: Any) -> Any:
-    if isinstance(value, (Node, Ref, TypeDef)):
-        return to_dict(value)
-    if isinstance(value, tuple):
-        return [_serialize_value(v) for v in value]
-    if isinstance(value, list):
-        return [_serialize_value(v) for v in value]
-    return value
-
-
-def from_dict(data: dict, registry: dict[str, type] = None) -> Node | Ref | TypeDef:
+def from_dict(data: dict) -> Node | Ref | TypeDef:
     """Deserialize from dict."""
     tag = data["tag"]
 
@@ -52,24 +42,12 @@ def from_dict(data: dict, registry: dict[str, type] = None) -> Node | Ref | Type
         return Ref[Any](id=data["id"])
 
     # Try Node registry first, then TypeDef
-    registry = registry or Node._registry
-    cls = registry.get(tag) or TypeDef._registry.get(tag)
-    if cls is None:
+    if tag in Node._registry:
+        return _adapter.deserialize_node(data)
+    elif tag in TypeDef._registry:
+        return _adapter.deserialize_typedef(data)
+    else:
         raise ValueError(f"Unknown tag: {tag}")
-
-    kwargs = {}
-    for field in dc_fields(cls):
-        raw = data.get(field.name)
-        kwargs[field.name] = _deserialize_value(raw, field.type)
-    return cls(**kwargs)
-
-
-def _deserialize_value(value: Any, hint: Any) -> Any:
-    if isinstance(value, dict) and "tag" in value:
-        return from_dict(value)
-    if isinstance(value, list):
-        return tuple(_deserialize_value(v, hint) for v in value)
-    return value
 
 
 def to_json(obj: Node | Ref | TypeDef) -> str:

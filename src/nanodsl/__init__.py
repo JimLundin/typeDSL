@@ -52,6 +52,12 @@ from nanodsl.schema import (
     FieldSchema,
 )
 
+from nanodsl.adapters import (
+    # Format adapters
+    FormatAdapter,
+    JSONAdapter,
+)
+
 from nanodsl.ast import (
     AST,
 )
@@ -93,4 +99,7 @@ __all__ = [
     "all_schemas",
     "NodeSchema",
     "FieldSchema",
+    # Format adapters
+    "FormatAdapter",
+    "JSONAdapter",
 ]
