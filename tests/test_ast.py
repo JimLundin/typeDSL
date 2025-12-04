@@ -115,7 +115,7 @@ class TestASTResolve:
         assert x_from_sum.value == 5.0
 
     def test_resolve_nonexistent_ref_raises_error(self) -> None:
-        """Test that resolving nonexistent ref raises KeyError."""
+        """Test that resolving nonexistent ref raises KeyError with helpful message."""
 
         class Item(Node[int], tag="item_resolve_err"):
             value: int
@@ -124,8 +124,31 @@ class TestASTResolve:
 
         ref = Ref[Node[int]](id="nonexistent")
 
-        with pytest.raises(KeyError):
+        with pytest.raises(KeyError, match="Node 'nonexistent' not found in AST"):
             ast.resolve(ref)
+
+    def test_resolve_error_lists_available_nodes(self) -> None:
+        """Test that error message lists available node IDs."""
+
+        class Item(Node[int], tag="item_resolve_list"):
+            value: int
+
+        ast = AST(
+            root="a",
+            nodes={"a": Item(value=1), "b": Item(value=2), "c": Item(value=3)},
+        )
+
+        ref = Ref[Node[int]](id="missing")
+
+        with pytest.raises(KeyError) as exc_info:
+            ast.resolve(ref)
+
+        error_msg = str(exc_info.value)
+        # Error should mention available IDs
+        assert "Available node IDs" in error_msg
+        assert "'a'" in error_msg or "a" in error_msg
+        assert "'b'" in error_msg or "b" in error_msg
+        assert "'c'" in error_msg or "c" in error_msg
 
     def test_resolve_type_casting(self) -> None:
         """Test that resolve returns correctly typed nodes."""
@@ -220,6 +243,20 @@ class TestASTSerialization:
 
 class TestASTDeserialization:
     """Test AST deserialization methods."""
+
+    def test_from_dict_missing_root_key(self) -> None:
+        """Test that from_dict raises error when 'root' key is missing."""
+        data = {"nodes": {}}  # Missing 'root' key
+
+        with pytest.raises(KeyError, match="Missing required key 'root'"):
+            AST.from_dict(data)
+
+    def test_from_dict_missing_nodes_key(self) -> None:
+        """Test that from_dict raises error when 'nodes' key is missing."""
+        data = {"root": "test"}  # Missing 'nodes' key
+
+        with pytest.raises(KeyError, match="Missing required key 'nodes'"):
+            AST.from_dict(data)
 
     def test_from_dict_simple(self) -> None:
         """Test deserializing simple AST from dict."""
