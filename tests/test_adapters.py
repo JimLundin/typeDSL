@@ -4,7 +4,7 @@ import pytest
 
 from nanodsl.adapters import JSONAdapter
 from nanodsl.nodes import Node, Ref
-from nanodsl.schema import FieldSchema, NodeSchema, node_schema
+from nanodsl.schema import node_schema
 from nanodsl.types import (
     BoolType,
     DictType,
@@ -14,8 +14,6 @@ from nanodsl.types import (
     NodeType,
     RefType,
     StrType,
-    TypeDef,
-    TypeParameter,
     UnionType,
 )
 

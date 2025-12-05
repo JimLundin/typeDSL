@@ -32,20 +32,6 @@ class TestASTBasics:
         assert ast.root == ""
         assert len(ast.nodes) == 0
 
-    def test_ast_nodes_are_mutable_dict(self) -> None:
-        """Test that AST.nodes dict can be modified."""
-
-        class Value(Node[int], tag="value_ast_mut"):
-            num: int
-
-        ast = AST(root="root", nodes={"root": Value(num=1)})
-
-        # Should be able to add nodes
-        ast.nodes["new"] = Value(num=2)
-        assert "new" in ast.nodes
-        assert len(ast.nodes) == 2
-
-
 class TestASTResolve:
     """Test AST.resolve() reference resolution."""
 

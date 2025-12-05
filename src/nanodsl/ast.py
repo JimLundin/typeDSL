@@ -10,6 +10,8 @@ from nanodsl.nodes import Node
 from nanodsl.serialization import from_dict, to_dict
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from nanodsl.nodes import Ref
 
 
@@ -18,7 +20,7 @@ class AST:
     """Flat AST with nodes stored by ID."""
 
     root: str
-    nodes: dict[str, Node[Any]]
+    nodes: Mapping[str, Node[Any]]
 
     def resolve[X](self, ref: Ref[X]) -> X:
         """Resolve a reference to its node.
@@ -31,13 +33,11 @@ class AST:
 
         Raises:
             KeyError: If the referenced node ID is not found in the AST
+
         """
         if ref.id not in self.nodes:
             available = list(self.nodes.keys())
-            msg = (
-                f"Node '{ref.id}' not found in AST. "
-                f"Available node IDs: {available}"
-            )
+            msg = f"Node '{ref.id}' not found in AST. Available node IDs: {available}"
             raise KeyError(msg)
         return cast(X, self.nodes[ref.id])
 
