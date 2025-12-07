@@ -1,4 +1,4 @@
-name: Publish DPM Toolkit CLI
+name: Publish typeDSL
 
 on:
   release:
