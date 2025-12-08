@@ -9,6 +9,7 @@ from typing import (
     Literal,
     TypeAliasType,
     TypeVar,
+    Union,
     get_args,
     get_origin,
     get_type_hints,
@@ -59,7 +60,7 @@ def extract_type(py_type: Any) -> TypeDef:
     args = get_args(py_type)
 
     if isinstance(py_type, TypeVar):
-        bound = getattr(py_type, "__bound__", None)
+        bound = py_type.__bound__
         return TypeParameter(
             name=py_type.__name__,
             bound=extract_type(bound) if bound is not None else None,
@@ -71,7 +72,7 @@ def extract_type(py_type: Any) -> TypeDef:
 
     # Expand PEP 695 type aliases
     if isinstance(origin, TypeAliasType):
-        type_params = getattr(origin, "__type_params__", ())
+        type_params = origin.__type_params__
         if len(type_params) != len(args):
             msg = (
                 f"Type alias {origin.__name__} expects {len(type_params)} "
@@ -136,7 +137,7 @@ def extract_type(py_type: Any) -> TypeDef:
     if origin is Ref:
         return RefType(extract_type(args[0]) if args else NoneType())
 
-    if isinstance(py_type, types.UnionType):
+    if isinstance(py_type, types.UnionType) or origin is Union:
         return UnionType(tuple(extract_type(a) for a in args))
 
     msg = f"Cannot extract type from: {py_type}"
