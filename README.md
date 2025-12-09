@@ -303,7 +303,7 @@ The `examples/` directory contains focused, educational examples:
 | Example | Description | Lines |
 |---------|-------------|-------|
 | **[01_calculator.py](examples/01_calculator.py)** | Basic calculator DSL - node definition, `Interpreter` class, shared subexpressions | ~130 |
-| **[02_adapting_existing_ast.py](examples/02_adapting_existing_ast.py)** | Converting external ASTs (Python's `ast` module) to nanoDSL | ~160 |
+| **[02_adapting_existing_ast.py](examples/02_adapting_existing_ast.py)** | Converting external ASTs (Python's `ast` module) to typeDSL | ~160 |
 
 See [examples/README.md](examples/README.md) for usage instructions and key patterns.
 

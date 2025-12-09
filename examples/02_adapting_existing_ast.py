@@ -8,7 +8,7 @@ This pattern applies to ANY existing AST: tree-sitter, ANTLR, proprietary parser
 
 import ast as python_ast
 from typing import Literal, Any
-from nanodsl import Node, Ref, AST, Interpreter
+from typedsl import Node, Ref, AST, Interpreter
 
 
 # ============================================================================

@@ -1,6 +1,6 @@
-# nanoDSL Examples
+# typeDSL Examples
 
-Simple, focused examples demonstrating how to build DSLs with nanoDSL.
+Simple, focused examples demonstrating how to build DSLs with typeDSL.
 
 ## Examples
 
@@ -15,8 +15,8 @@ Basic mathematical expression evaluator demonstrating:
 
 ### 2. Adapting Existing ASTs (`02_adapting_existing_ast.py`)
 
-How to convert an external AST (Python's `ast` module) to nanoDSL:
-- Mapping external nodes to nanoDSL nodes
+How to convert an external AST (Python's `ast` module) to typeDSL:
+- Mapping external nodes to typeDSL nodes
 - Building a converter
 - Implementing an interpreter
 - Round-tripping through JSON
@@ -38,7 +38,7 @@ python examples/02_adapting_existing_ast.py
 ### Pattern 1: Define Nodes
 
 ```python
-from nanodsl import Node, Ref
+from typedsl import Node, Ref
 
 class BinOp(Node[float], tag="binop"):
     """Binary operation node."""
@@ -50,7 +50,7 @@ class BinOp(Node[float], tag="binop"):
 ### Pattern 2: Implement Interpreter
 
 ```python
-from nanodsl import Interpreter
+from typedsl import Interpreter
 
 class Calculator(Interpreter[dict[str, float], float]):
     def eval(self, node: Node[float]) -> float:
@@ -63,7 +63,7 @@ class Calculator(Interpreter[dict[str, float], float]):
 ### Pattern 3: Build and Evaluate AST
 
 ```python
-from nanodsl import AST, Ref
+from typedsl import AST, Ref
 
 ast = AST(
     root="result",

@@ -9,7 +9,7 @@ A simple mathematical expression evaluator demonstrating:
 """
 
 from typing import Literal
-from nanodsl import Node, Ref, AST, Interpreter
+from typedsl import Node, Ref, AST, Interpreter
 
 
 # ============================================================================
