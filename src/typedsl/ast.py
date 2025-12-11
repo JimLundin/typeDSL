@@ -105,18 +105,13 @@ class Interpreter[Ctx, R](ABC):
     def run(self) -> R:
         """Evaluate the AST from its root node."""
         root = self.ast.nodes[self.ast.root]
-        return self.eval(root)  # type: ignore[no-any-return]
+        return self.eval(root)
 
     def resolve[X](self, ref: Ref[X]) -> X:
         """Resolve a reference to its target."""
         return self.ast.resolve(ref)
 
     @abstractmethod
-    def eval(self, node: Node[Any]) -> Any:
-        """Evaluate a node. Implement with pattern matching.
-
-        Override with your preferred signature:
-        - Homogeneous: def eval(self, node: Node[Any]) -> float
-        - Typed: def eval[T](self, node: Node[T]) -> T
-        """
+    def eval(self, node: Node[Any]) -> R:
+        """Evaluate a node. Implement with pattern matching."""
         ...
