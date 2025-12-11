@@ -33,14 +33,18 @@ from typedsl.serialization import (
     to_json,
 )
 from typedsl.types import (
+    AbstractSetType,
     BoolType,
+    BytesType,
     DateTimeType,
     DateType,
+    DecimalType,
     DictType,
     DurationType,
     ExternalType,
     ExternalTypeRecord,
     FloatType,
+    FrozenSetType,
     IntType,
     ListType,
     LiteralType,
@@ -61,11 +65,14 @@ from typedsl.types import (
 )
 
 __all__ = [
+    "AbstractSetType",
     "AST",
     "BoolType",
+    "BytesType",
     "Child",
     "DateTimeType",
     "DateType",
+    "DecimalType",
     "DictType",
     "DurationType",
     "ExternalType",
@@ -74,6 +81,7 @@ __all__ = [
     "FloatType",
     # Format adapters
     "FormatAdapter",
+    "FrozenSetType",
     "IntType",
     "Interpreter",
     "JSONAdapter",

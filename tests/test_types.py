@@ -3,13 +3,17 @@
 import pytest
 
 from typedsl.types import (
+    AbstractSetType,
     BoolType,
+    BytesType,
     DateTimeType,
     DateType,
+    DecimalType,
     DictType,
     DurationType,
     ExternalType,
     FloatType,
+    FrozenSetType,
     IntType,
     ListType,
     LiteralType,
@@ -62,6 +66,26 @@ class TestPrimitiveTypes:
         it = IntType()
         with pytest.raises((AttributeError, TypeError)):
             it._tag = "other"
+
+
+class TestBinaryAndPrecisionTypes:
+    """Test binary and precision types."""
+
+    def test_bytes_type_creation(self) -> None:
+        """Test creating a BytesType."""
+        bt = BytesType()
+        assert bt._tag == "bytes"
+
+    def test_decimal_type_creation(self) -> None:
+        """Test creating a DecimalType."""
+        dt = DecimalType()
+        assert dt._tag == "decimal"
+
+    def test_bytes_type_frozen(self) -> None:
+        """Test that BytesType is immutable."""
+        bt = BytesType()
+        with pytest.raises((AttributeError, TypeError)):
+            bt._tag = "other"
 
 
 class TestTemporalTypes:
@@ -166,6 +190,37 @@ class TestGenericContainerTypes:
         with pytest.raises((AttributeError, TypeError)):
             mt.key = IntType()
 
+    def test_frozenset_type_creation(self) -> None:
+        """Test creating a FrozenSetType."""
+        fst = FrozenSetType(element=IntType())
+        assert fst._tag == "frozenset"
+        assert isinstance(fst.element, IntType)
+
+    def test_frozenset_type_frozen(self) -> None:
+        """Test that FrozenSetType is immutable."""
+        fst = FrozenSetType(element=IntType())
+        with pytest.raises((AttributeError, TypeError)):
+            fst.element = StrType()
+
+    def test_abstractset_type_creation(self) -> None:
+        """Test creating an AbstractSetType."""
+        ast = AbstractSetType(element=IntType())
+        assert ast._tag == "abstractset"
+        assert isinstance(ast.element, IntType)
+
+    def test_abstractset_type_with_nested_type(self) -> None:
+        """Test creating AbstractSetType with nested type."""
+        ast = AbstractSetType(element=ListType(element=StrType()))
+        assert ast._tag == "abstractset"
+        assert isinstance(ast.element, ListType)
+        assert isinstance(ast.element.element, StrType)
+
+    def test_abstractset_type_frozen(self) -> None:
+        """Test that AbstractSetType is immutable."""
+        ast = AbstractSetType(element=IntType())
+        with pytest.raises((AttributeError, TypeError)):
+            ast.element = StrType()
+
 
 class TestNodeType:
     """Test NodeType."""
@@ -251,6 +306,9 @@ class TestTypeDefRegistry:
         assert "str" in TypeDef.registry
         assert "bool" in TypeDef.registry
         assert "none" in TypeDef.registry
+        # Binary and precision types
+        assert "bytes" in TypeDef.registry
+        assert "decimal" in TypeDef.registry
         # Temporal types
         assert "date" in TypeDef.registry
         assert "time" in TypeDef.registry
@@ -260,10 +318,12 @@ class TestTypeDefRegistry:
         assert "list" in TypeDef.registry
         assert "dict" in TypeDef.registry
         assert "set" in TypeDef.registry
+        assert "frozenset" in TypeDef.registry
         assert "tuple" in TypeDef.registry
         # Generic container types
         assert "sequence" in TypeDef.registry
         assert "mapping" in TypeDef.registry
+        assert "abstractset" in TypeDef.registry
         assert "literal" in TypeDef.registry
         assert "node" in TypeDef.registry
         assert "ref" in TypeDef.registry
@@ -278,6 +338,9 @@ class TestTypeDefRegistry:
         assert TypeDef.registry["str"] == StrType
         assert TypeDef.registry["bool"] == BoolType
         assert TypeDef.registry["none"] == NoneType
+        # Binary and precision types
+        assert TypeDef.registry["bytes"] == BytesType
+        assert TypeDef.registry["decimal"] == DecimalType
         # Temporal types
         assert TypeDef.registry["date"] == DateType
         assert TypeDef.registry["time"] == TimeType
@@ -287,10 +350,12 @@ class TestTypeDefRegistry:
         assert TypeDef.registry["list"] == ListType
         assert TypeDef.registry["dict"] == DictType
         assert TypeDef.registry["set"] == SetType
+        assert TypeDef.registry["frozenset"] == FrozenSetType
         assert TypeDef.registry["tuple"] == TupleType
         # Generic container types
         assert TypeDef.registry["sequence"] == SequenceType
         assert TypeDef.registry["mapping"] == MappingType
+        assert TypeDef.registry["abstractset"] == AbstractSetType
         assert TypeDef.registry["literal"] == LiteralType
         assert TypeDef.registry["node"] == NodeType
         assert TypeDef.registry["ref"] == RefType

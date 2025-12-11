@@ -1,24 +1,30 @@
 """Tests for typedsl.schema module."""
 
 import datetime
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping, Sequence, Set as AbstractSet
+from decimal import Decimal
 from typing import TypeVar
 
 import pytest
 
 from typedsl.schema import extract_type
 from typedsl.types import (
+    AbstractSetType,
     BoolType,
+    BytesType,
     DateTimeType,
     DateType,
+    DecimalType,
     DictType,
     DurationType,
     FloatType,
+    FrozenSetType,
     IntType,
     ListType,
     MappingType,
     NoneType,
     SequenceType,
+    SetType,
     StrType,
     TimeType,
     TypeParameter,
@@ -53,6 +59,20 @@ class TestExtractPrimitives:
         """Test extracting None type."""
         result = extract_type(type(None))
         assert isinstance(result, NoneType)
+
+
+class TestExtractBinaryAndPrecisionTypes:
+    """Test extracting binary and precision types."""
+
+    def test_extract_bytes(self) -> None:
+        """Test extracting bytes type."""
+        result = extract_type(bytes)
+        assert isinstance(result, BytesType)
+
+    def test_extract_decimal(self) -> None:
+        """Test extracting Decimal type."""
+        result = extract_type(Decimal)
+        assert isinstance(result, DecimalType)
 
 
 class TestExtractTemporalTypes:
@@ -233,6 +253,38 @@ class TestExtractGenericContainers:
         assert result.key.name == "K"
         assert isinstance(result.value, TypeParameter)
         assert result.value.name == "V"
+
+    def test_extract_frozenset_int(self) -> None:
+        """Test extracting frozenset[int]."""
+        result = extract_type(frozenset[int])
+        assert isinstance(result, FrozenSetType)
+        assert isinstance(result.element, IntType)
+
+    def test_extract_frozenset_str(self) -> None:
+        """Test extracting frozenset[str]."""
+        result = extract_type(frozenset[str])
+        assert isinstance(result, FrozenSetType)
+        assert isinstance(result.element, StrType)
+
+    def test_extract_abstractset_int(self) -> None:
+        """Test extracting Set[int] from collections.abc."""
+        result = extract_type(AbstractSet[int])
+        assert isinstance(result, AbstractSetType)
+        assert isinstance(result.element, IntType)
+
+    def test_extract_abstractset_str(self) -> None:
+        """Test extracting Set[str] from collections.abc."""
+        result = extract_type(AbstractSet[str])
+        assert isinstance(result, AbstractSetType)
+        assert isinstance(result.element, StrType)
+
+    def test_extract_abstractset_with_type_parameter(self) -> None:
+        """Test extracting Set[T] where T is a type parameter."""
+        T = TypeVar("T")
+        result = extract_type(AbstractSet[T])
+        assert isinstance(result, AbstractSetType)
+        assert isinstance(result.element, TypeParameter)
+        assert result.element.name == "T"
 
 
 class TestExtractWithTypeParameters:

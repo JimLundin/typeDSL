@@ -114,6 +114,14 @@ class NoneType(TypeDef, tag="none"):
     """None/null type."""
 
 
+class BytesType(TypeDef, tag="bytes"):
+    """Binary data type."""
+
+
+class DecimalType(TypeDef, tag="decimal"):
+    """Arbitrary precision decimal type."""
+
+
 # Temporal types - abstract representations that serializers interpret
 class DateType(TypeDef, tag="date"):
     """Date type (year, month, day)."""
@@ -150,6 +158,12 @@ class SetType(TypeDef, tag="set"):
     element: TypeDef
 
 
+class FrozenSetType(TypeDef, tag="frozenset"):
+    """Immutable set type: frozenset[int] → FrozenSetType(element=IntType())."""
+
+    element: TypeDef
+
+
 class TupleType(TypeDef, tag="tuple"):
     """Fixed-length heterogeneous tuple: tuple[int, str] → TupleType(elements=(...))."""
 
@@ -174,6 +188,15 @@ class MappingType(TypeDef, tag="mapping"):
 
     key: TypeDef
     value: TypeDef
+
+
+class AbstractSetType(TypeDef, tag="abstractset"):
+    """Generic set type: Set[int] → AbstractSetType(element=IntType()).
+
+    Abstract unique collection - serializers determine concrete representation.
+    """
+
+    element: TypeDef
 
 
 class LiteralType(TypeDef, tag="literal"):

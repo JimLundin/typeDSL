@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import datetime
 import types
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping, Sequence, Set as AbstractSet
 from dataclasses import dataclass, fields
+from decimal import Decimal
 from typing import (
     Any,
     Literal,
@@ -19,12 +20,16 @@ from typing import (
 
 from typedsl.nodes import Node, Ref
 from typedsl.types import (
+    AbstractSetType,
     BoolType,
+    BytesType,
     DateTimeType,
     DateType,
+    DecimalType,
     DictType,
     DurationType,
     FloatType,
+    FrozenSetType,
     IntType,
     ListType,
     LiteralType,
@@ -101,6 +106,10 @@ def extract_type(py_type: Any) -> TypeDef:
         return BoolType()
     if py_type is type(None):
         return NoneType()
+    if py_type is bytes:
+        return BytesType()
+    if py_type is Decimal:
+        return DecimalType()
 
     # Temporal types
     if py_type is datetime.date:
@@ -130,6 +139,12 @@ def extract_type(py_type: Any) -> TypeDef:
             raise ValueError(msg)
         return SetType(element=extract_type(args[0]))
 
+    if origin is frozenset:
+        if not args:
+            msg = "frozenset type must have an element type"
+            raise ValueError(msg)
+        return FrozenSetType(element=extract_type(args[0]))
+
     if origin is tuple:
         if not args:
             msg = "tuple type must have element types"
@@ -148,6 +163,12 @@ def extract_type(py_type: Any) -> TypeDef:
             msg = "Mapping type must have key and value types"
             raise ValueError(msg)
         return MappingType(key=extract_type(args[0]), value=extract_type(args[1]))
+
+    if origin is AbstractSet:
+        if not args:
+            msg = "Set type must have an element type"
+            raise ValueError(msg)
+        return AbstractSetType(element=extract_type(args[0]))
 
     if origin is Literal:
         if not args:
