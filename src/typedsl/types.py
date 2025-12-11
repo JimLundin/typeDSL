@@ -190,15 +190,6 @@ class MappingType(TypeDef, tag="mapping"):
     value: TypeDef
 
 
-class AbstractSetType(TypeDef, tag="abstractset"):
-    """Generic set type: Set[int] → AbstractSetType(element=IntType()).
-
-    Abstract unique collection - serializers determine concrete representation.
-    """
-
-    element: TypeDef
-
-
 class LiteralType(TypeDef, tag="literal"):
     """Literal enumeration: Literal["a", "b"] → LiteralType(values=("a", "b"))."""
 

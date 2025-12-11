@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import datetime
 import types
-from collections.abc import Mapping, Sequence, Set as AbstractSet
-from dataclasses import dataclass, fields as dataclass_fields
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, fields
 from decimal import Decimal
 from typing import (
     Any,
@@ -20,7 +20,6 @@ from typing import (
 
 from typedsl.nodes import Node, Ref
 from typedsl.types import (
-    AbstractSetType,
     BoolType,
     BytesType,
     DateTimeType,
@@ -67,16 +66,15 @@ _TYPE_MAP: dict[type, type[TypeDef]] = {
     set: SetType,
     frozenset: FrozenSetType,
     Sequence: SequenceType,
-    AbstractSet: AbstractSetType,
     # Key-value containers
     dict: DictType,
     Mapping: MappingType,
 }
 
 
-def _get_typedef_fields(typedef_cls: type[TypeDef]) -> list[str]:
-    """Get public field names from a TypeDef class."""
-    return [f.name for f in dataclass_fields(typedef_cls) if not f.name.startswith("_")]
+def _get_field_count(typedef_cls: type[TypeDef]) -> int:
+    """Get the number of public fields from a TypeDef class."""
+    return sum(1 for f in fields(typedef_cls) if not f.name.startswith("_"))
 
 
 @dataclass(frozen=True)
@@ -132,14 +130,12 @@ def extract_type(py_type: Any) -> TypeDef:
     lookup_key = py_type if py_type in _TYPE_MAP else origin
     if lookup_key in _TYPE_MAP:
         typedef_cls = _TYPE_MAP[lookup_key]
-        field_names = _get_typedef_fields(typedef_cls)
-        if len(args) != len(field_names):
+        field_count = _get_field_count(typedef_cls)
+        if len(args) != field_count:
             type_name = getattr(lookup_key, "__name__", str(lookup_key))
-            msg = f"{type_name} requires {len(field_names)} type argument(s), got {len(args)}"
+            msg = f"{type_name} requires {field_count} type argument(s), got {len(args)}"
             raise ValueError(msg)
-        return typedef_cls(**{
-            name: extract_type(arg) for name, arg in zip(field_names, args, strict=True)
-        })
+        return typedef_cls(*(extract_type(arg) for arg in args))
 
     # Tuple (heterogeneous, variable-length elements)
     if origin is tuple:
@@ -205,7 +201,7 @@ def node_schema(cls: type[Node[Any]]) -> NodeSchema:
 
     node_fields = (
         FieldSchema(name=f.name, type=extract_type(hints[f.name]))
-        for f in dataclass_fields(cls)
+        for f in fields(cls)
         if not f.name.startswith("_")
     )
 

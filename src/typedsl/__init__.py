@@ -33,7 +33,6 @@ from typedsl.serialization import (
     to_json,
 )
 from typedsl.types import (
-    AbstractSetType,
     BoolType,
     BytesType,
     DateTimeType,
@@ -65,7 +64,6 @@ from typedsl.types import (
 )
 
 __all__ = [
-    "AbstractSetType",
     "AST",
     "BoolType",
     "BytesType",

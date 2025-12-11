@@ -1,7 +1,7 @@
 """Tests for typedsl.schema module."""
 
 import datetime
-from collections.abc import Mapping, Sequence, Set as AbstractSet
+from collections.abc import Mapping, Sequence
 from decimal import Decimal
 from typing import TypeVar
 
@@ -9,7 +9,6 @@ import pytest
 
 from typedsl.schema import extract_type
 from typedsl.types import (
-    AbstractSetType,
     BoolType,
     BytesType,
     DateTimeType,
@@ -24,7 +23,6 @@ from typedsl.types import (
     MappingType,
     NoneType,
     SequenceType,
-    SetType,
     StrType,
     TimeType,
     TypeParameter,
@@ -265,26 +263,6 @@ class TestExtractGenericContainers:
         result = extract_type(frozenset[str])
         assert isinstance(result, FrozenSetType)
         assert isinstance(result.element, StrType)
-
-    def test_extract_abstractset_int(self) -> None:
-        """Test extracting Set[int] from collections.abc."""
-        result = extract_type(AbstractSet[int])
-        assert isinstance(result, AbstractSetType)
-        assert isinstance(result.element, IntType)
-
-    def test_extract_abstractset_str(self) -> None:
-        """Test extracting Set[str] from collections.abc."""
-        result = extract_type(AbstractSet[str])
-        assert isinstance(result, AbstractSetType)
-        assert isinstance(result.element, StrType)
-
-    def test_extract_abstractset_with_type_parameter(self) -> None:
-        """Test extracting Set[T] where T is a type parameter."""
-        T = TypeVar("T")
-        result = extract_type(AbstractSet[T])
-        assert isinstance(result, AbstractSetType)
-        assert isinstance(result.element, TypeParameter)
-        assert result.element.name == "T"
 
 
 class TestExtractWithTypeParameters:

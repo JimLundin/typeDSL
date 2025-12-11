@@ -3,7 +3,6 @@
 import pytest
 
 from typedsl.types import (
-    AbstractSetType,
     BoolType,
     BytesType,
     DateTimeType,
@@ -202,25 +201,6 @@ class TestGenericContainerTypes:
         with pytest.raises((AttributeError, TypeError)):
             fst.element = StrType()
 
-    def test_abstractset_type_creation(self) -> None:
-        """Test creating an AbstractSetType."""
-        ast = AbstractSetType(element=IntType())
-        assert ast._tag == "abstractset"
-        assert isinstance(ast.element, IntType)
-
-    def test_abstractset_type_with_nested_type(self) -> None:
-        """Test creating AbstractSetType with nested type."""
-        ast = AbstractSetType(element=ListType(element=StrType()))
-        assert ast._tag == "abstractset"
-        assert isinstance(ast.element, ListType)
-        assert isinstance(ast.element.element, StrType)
-
-    def test_abstractset_type_frozen(self) -> None:
-        """Test that AbstractSetType is immutable."""
-        ast = AbstractSetType(element=IntType())
-        with pytest.raises((AttributeError, TypeError)):
-            ast.element = StrType()
-
 
 class TestNodeType:
     """Test NodeType."""
@@ -323,7 +303,6 @@ class TestTypeDefRegistry:
         # Generic container types
         assert "sequence" in TypeDef.registry
         assert "mapping" in TypeDef.registry
-        assert "abstractset" in TypeDef.registry
         assert "literal" in TypeDef.registry
         assert "node" in TypeDef.registry
         assert "ref" in TypeDef.registry
@@ -355,7 +334,6 @@ class TestTypeDefRegistry:
         # Generic container types
         assert TypeDef.registry["sequence"] == SequenceType
         assert TypeDef.registry["mapping"] == MappingType
-        assert TypeDef.registry["abstractset"] == AbstractSetType
         assert TypeDef.registry["literal"] == LiteralType
         assert TypeDef.registry["node"] == NodeType
         assert TypeDef.registry["ref"] == RefType
