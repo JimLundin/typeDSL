@@ -22,16 +22,16 @@ class Node[T]:
     registry: ClassVar[dict[str, type[Node[Any]]]] = {}
 
     def __init_subclass__(cls, tag: str | None = None) -> None:
+        """Register node subclass with automatic tag derivation."""
         dataclass(frozen=True)(cls)
         cls.tag = tag if tag is not None else cls.__name__.lower().removesuffix("node")
 
-        if existing := Node.registry.get(cls.tag):
-            if existing is not cls:
-                msg = (
-                    f"Tag '{cls.tag}' already registered to {existing}. "
-                    "Choose a different tag."
-                )
-                raise ValueError(msg)
+        if (existing := Node.registry.get(cls.tag)) and existing is not cls:
+            msg = (
+                f"Tag '{cls.tag}' already registered to {existing}. "
+                "Choose a different tag."
+            )
+            raise ValueError(msg)
 
         Node.registry[cls.tag] = cls
 

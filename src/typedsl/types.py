@@ -38,16 +38,16 @@ class TypeDef:
     _external_types: ClassVar[dict[type, ExternalTypeRecord[Any]]] = {}
 
     def __init_subclass__(cls, tag: str | None = None) -> None:
+        """Register typedef subclass with automatic tag derivation."""
         dataclass(frozen=True)(cls)
         cls.tag = tag if tag is not None else cls.__name__.lower().removesuffix("type")
 
-        if existing := TypeDef.registry.get(cls.tag):
-            if existing is not cls:
-                msg = (
-                    f"Tag '{cls.tag}' already registered to {existing}. "
-                    "Choose a different tag."
-                )
-                raise ValueError(msg)
+        if (existing := TypeDef.registry.get(cls.tag)) and existing is not cls:
+            msg = (
+                f"Tag '{cls.tag}' already registered to {existing}. "
+                "Choose a different tag."
+            )
+            raise ValueError(msg)
 
         TypeDef.registry[cls.tag] = cls
 

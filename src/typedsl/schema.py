@@ -179,10 +179,12 @@ def extract_type(py_type: Any) -> TypeDef:
 def _extract_node_returns(cls: type[Node[Any]]) -> TypeDef:
     """Extract the return type from a Node class definition."""
     for base in getattr(cls, "__orig_bases__", ()):
-        if origin := get_origin(base):
-            if isinstance(origin, type) and issubclass(origin, Node):
-                if args := get_args(base):
-                    return extract_type(args[0])
+        origin = get_origin(base)
+        is_node_origin = isinstance(origin, type) and issubclass(origin, Node)
+        if origin is None or not is_node_origin:
+            continue
+        if args := get_args(base):
+            return extract_type(args[0])
     return NoneType()
 
 

@@ -33,25 +33,36 @@ class FormatAdapter(ABC):
     """Base class for format-specific serialization."""
 
     @abstractmethod
-    def serialize_node(self, node: Node[Any]) -> dict[str, Any]: ...
+    def serialize_node(self, node: Node[Any]) -> dict[str, Any]:
+        """Serialize a Node to dictionary format."""
+        ...
 
     @abstractmethod
-    def deserialize_node(self, data: dict[str, Any]) -> Node[Any]: ...
+    def deserialize_node(self, data: dict[str, Any]) -> Node[Any]:
+        """Deserialize a dictionary to a Node."""
+        ...
 
     @abstractmethod
-    def serialize_typedef(self, typedef: TypeDef) -> dict[str, Any]: ...
+    def serialize_typedef(self, typedef: TypeDef) -> dict[str, Any]:
+        """Serialize a TypeDef to dictionary format."""
+        ...
 
     @abstractmethod
-    def deserialize_typedef(self, data: dict[str, Any]) -> TypeDef: ...
+    def deserialize_typedef(self, data: dict[str, Any]) -> TypeDef:
+        """Deserialize a dictionary to a TypeDef."""
+        ...
 
     @abstractmethod
-    def serialize_node_schema(self, schema: NodeSchema) -> SerializedNodeSchema: ...
+    def serialize_node_schema(self, schema: NodeSchema) -> SerializedNodeSchema:
+        """Serialize a NodeSchema to dictionary format."""
+        ...
 
 
 class JSONAdapter(FormatAdapter):
     """JSON serialization adapter."""
 
     def serialize_node(self, node: Node[Any]) -> dict[str, Any]:
+        """Serialize a Node to a JSON-compatible dictionary."""
         result = {
             field.name: self._serialize_value(getattr(node, field.name))
             for field in fields(node)
@@ -61,6 +72,7 @@ class JSONAdapter(FormatAdapter):
         return result
 
     def deserialize_node(self, data: dict[str, Any]) -> Node[Any]:
+        """Deserialize a JSON-compatible dictionary to a Node."""
         tag = data["tag"]
         node_cls = Node.registry.get(tag)
         if node_cls is None:
@@ -75,6 +87,7 @@ class JSONAdapter(FormatAdapter):
         return node_cls(**field_values)
 
     def deserialize_typedef(self, data: dict[str, Any]) -> TypeDef:
+        """Deserialize a JSON-compatible dictionary to a TypeDef."""
         tag = data["tag"]
         typedef_cls = TypeDef.registry.get(tag)
         if typedef_cls is None:
@@ -89,6 +102,7 @@ class JSONAdapter(FormatAdapter):
         return typedef_cls(**field_values)
 
     def serialize_typedef(self, typedef: TypeDef) -> dict[str, Any]:
+        """Serialize a TypeDef to a JSON-compatible dictionary."""
         result = {
             field.name: self._serialize_value(getattr(typedef, field.name))
             for field in fields(typedef)
@@ -98,6 +112,7 @@ class JSONAdapter(FormatAdapter):
         return result
 
     def serialize_node_schema(self, schema: NodeSchema) -> SerializedNodeSchema:
+        """Serialize a NodeSchema to a JSON-compatible dictionary."""
         return {
             "tag": schema.tag,
             "type_params": [self.serialize_typedef(tp) for tp in schema.type_params],
