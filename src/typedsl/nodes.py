@@ -26,7 +26,7 @@ class Node[T]:
         dataclass(frozen=True)(cls)
 
         cls._signature = kwargs
-        cls._tag = ".".join(str(v) for v in kwargs.values()) if kwargs else cls.__name__
+        cls._tag = ".".join(map(str, kwargs.values())) if kwargs else cls.__name__
 
         if existing := Node.registry.get(cls._tag):
             if existing is not cls:

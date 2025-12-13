@@ -15,6 +15,8 @@ from typedsl import Node, Ref, AST, Interpreter
 # ============================================================================
 # Define Nodes
 # ============================================================================
+# Note: You can use simple tags like tag="calc_const", or multi-part signatures
+# like ns="calc", name="const", version="1.0" for namespacing/versioning.
 
 class Const(Node[float], tag="calc_const"):
     """A constant numeric value."""
