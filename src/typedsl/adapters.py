@@ -24,6 +24,7 @@ class SerializedNodeSchema(TypedDict):
     """Serialized node schema structure."""
 
     tag: str
+    signature: dict[str, Any]  # Signature kwargs
     type_params: list[dict[str, Any]]
     returns: dict[str, Any]
     fields: list[SerializedFieldSchema]
@@ -100,6 +101,7 @@ class JSONAdapter(FormatAdapter):
     def serialize_node_schema(self, schema: NodeSchema) -> SerializedNodeSchema:
         return {
             "tag": schema.tag,
+            "signature": schema.signature,
             "type_params": [self.serialize_typedef(tp) for tp in schema.type_params],
             "returns": self.serialize_typedef(schema.returns),
             "fields": [
