@@ -39,20 +39,9 @@ class Node[T]:
         Node.registry[cls._tag] = cls
 
     @classmethod
-    def _clear_registry(cls, *, preserve: set[str] | None = None) -> None:
-        """Clear the registry, optionally preserving certain tags.
-
-        This is primarily for testing to ensure test isolation.
-
-        Args:
-            preserve: Optional set of tags to keep in the registry.
-        """
-        if preserve is None:
-            cls.registry.clear()
-        else:
-            tags_to_remove = [tag for tag in cls.registry if tag not in preserve]
-            for tag in tags_to_remove:
-                del cls.registry[tag]
+    def _clear_registry(cls) -> None:
+        """Clear the registry. For testing only."""
+        cls.registry.clear()
 
 
 type NodeRef[T] = Ref[Node[T]]

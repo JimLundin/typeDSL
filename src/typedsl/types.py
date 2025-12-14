@@ -52,21 +52,19 @@ class TypeDef:
         TypeDef.registry[cls._tag] = cls
 
     @classmethod
-    def _clear_registry(cls, *, preserve: set[str] | None = None) -> None:
-        """Clear the registry, optionally preserving certain tags.
+    def _clear_registry(cls) -> None:
+        """Clear user-defined types from registry. For testing only.
 
-        This is primarily for testing to ensure test isolation.
-
-        Args:
-            preserve: Optional set of tags to keep in the registry.
+        Built-in types (defined in typedsl.types) are preserved.
         """
-        if preserve is None:
-            cls.registry.clear()
-            cls._external_types.clear()
-        else:
-            tags_to_remove = [tag for tag in cls.registry if tag not in preserve]
-            for tag in tags_to_remove:
-                del cls.registry[tag]
+        tags_to_remove = [
+            tag
+            for tag, type_cls in cls.registry.items()
+            if type_cls.__module__ != "typedsl.types"
+        ]
+        for tag in tags_to_remove:
+            del cls.registry[tag]
+        cls._external_types.clear()
 
     @classmethod
     def register[T](

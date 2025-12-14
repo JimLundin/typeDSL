@@ -147,22 +147,6 @@ class TestNodeRegistry:
         Node._clear_registry()
         assert len(Node.registry) == 0
 
-    def test_clear_registry_with_preserve(self) -> None:
-        """Test that _clear_registry can preserve specific tags."""
-        Node._clear_registry()
-
-        class KeepNode(Node[int], tag="keep"):
-            value: int
-
-        class RemoveNode(Node[int], tag="remove"):
-            value: int
-
-        assert len(Node.registry) == 2
-        Node._clear_registry(preserve={"keep"})
-        assert len(Node.registry) == 1
-        assert "keep" in Node.registry
-        assert "remove" not in Node.registry
-
 
 class TestNodeGenericTypes:
     """Test Node with generic type parameters."""
