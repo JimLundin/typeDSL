@@ -44,22 +44,13 @@ class TestNodeBasics:
 class TestNodeTags:
     """Test Node tag generation and registration."""
 
-    def test_automatic_tag_generation(self) -> None:
-        """Test that tags are automatically generated from class names."""
+    def test_automatic_tag_uses_class_name(self) -> None:
+        """Test that auto-generated tags use the exact class name."""
 
         class MyTestNode(Node[int]):
             value: int
 
-        # 'node' suffix is removed, so MyTestNode -> mytest
-        assert MyTestNode._tag == "mytest"
-
-    def test_automatic_tag_strips_node_suffix(self) -> None:
-        """Test that 'node' suffix is removed from auto-generated tags."""
-
-        class CalculatorNode(Node[float]):
-            result: float
-
-        assert CalculatorNode._tag == "calculator"
+        assert MyTestNode._tag == "MyTestNode"
 
     def test_custom_tag(self) -> None:
         """Test explicitly setting a custom tag."""
