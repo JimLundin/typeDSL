@@ -3,14 +3,9 @@ name: Publish typeDSL
 on:
   workflow_dispatch:
     inputs:
-      create_release:
-        description: 'Create GitHub release'
-        required: false
-        default: 'false'
-        type: boolean
       release_tag:
         description: 'Release tag (e.g., v0.1.0)'
-        required: false
+        required: true
         type: string
 
 jobs:
@@ -39,7 +34,6 @@ jobs:
         run: uv publish
 
       - name: Create GitHub Release
-        if: ${{ inputs.create_release == true && inputs.release_tag != '' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
