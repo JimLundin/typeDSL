@@ -135,8 +135,7 @@ def extract_type(py_type: Any) -> TypeDef:
         if len(args) != field_count:
             type_name = getattr(lookup_key, "__name__", str(lookup_key))
             msg = (
-                f"{type_name} requires {field_count} type argument(s), "
-                f"got {len(args)}"
+                f"{type_name} requires {field_count} type argument(s), got {len(args)}"
             )
             raise ValueError(msg)
         return typedef_cls(*(extract_type(arg) for arg in args))

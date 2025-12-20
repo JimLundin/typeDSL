@@ -509,6 +509,7 @@ class TestErrorRecovery:
 
     def test_resolve_nonexistent_reference(self) -> None:
         """Test resolving reference that doesn't exist in AST."""
+
         class Dummy(Node[int], tag="dummy_err"):
             value: int
 

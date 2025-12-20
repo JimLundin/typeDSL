@@ -206,6 +206,7 @@ class TestSignatureCollisions:
 
     def test_different_signatures_same_tag_raises_error(self) -> None:
         """Different signature patterns that produce same tag raise error."""
+
         class First(Node[int], ns="collision", name="test"):
             value: int
 

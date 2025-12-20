@@ -63,8 +63,9 @@ unsafe-fixes = true
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
-    "D203",   # incompatible with D211
-    "D213",   # incompatible with D212
+    "COM812",  # conflicts with ruff formatter
+    "D203",    # incompatible with D211
+    "D213",    # incompatible with D212
 ]
 
 [tool.ruff.lint.per-file-ignores]
