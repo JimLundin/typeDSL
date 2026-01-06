@@ -130,7 +130,7 @@ class TestProgramResolve:
 
         ref = Ref[Node[int]](id="nonexistent")
 
-        with pytest.raises(KeyError, match="Node 'nonexistent' not found in AST"):
+        with pytest.raises(KeyError, match="Node 'nonexistent' not found in program"):
             prog.resolve(ref)
 
     def test_resolve_error_lists_available_nodes(self) -> None:
@@ -189,7 +189,8 @@ class TestProgramSerialization:
 
         result = prog.to_dict()
 
-        assert result["root"] == "n1"
+        assert result["root"]["tag"] == "ref"
+        assert result["root"]["id"] == "n1"
         assert "nodes" in result
         assert "n1" in result["nodes"]
         assert "n2" in result["nodes"]
@@ -217,7 +218,8 @@ class TestProgramSerialization:
 
         result = prog.to_dict()
 
-        assert result["root"] == "result"
+        assert result["root"]["tag"] == "ref"
+        assert result["root"]["id"] == "result"
         assert result["nodes"]["result"]["left"]["tag"] == "ref"
         assert result["nodes"]["result"]["left"]["id"] == "a"
 
@@ -233,7 +235,8 @@ class TestProgramSerialization:
 
         # Should be valid JSON
         parsed = json.loads(json_str)
-        assert parsed["root"] == "s"
+        assert parsed["root"]["tag"] == "ref"
+        assert parsed["root"]["id"] == "s"
         assert "nodes" in parsed
 
     def test_to_json_is_formatted(self) -> None:
@@ -274,7 +277,7 @@ class TestProgramDeserialization:
             value: int
 
         data = {
-            "root": "n1",
+            "root": {"tag": "ref", "id": "n1"},
             "nodes": {
                 "n1": {"tag": "number_ast_from_dict", "value": 42},
                 "n2": {"tag": "number_ast_from_dict", "value": 100},
@@ -300,7 +303,7 @@ class TestProgramDeserialization:
             right: Ref[Node[str]]
 
         data = {
-            "root": "root",
+            "root": {"tag": "ref", "id": "root"},
             "nodes": {
                 "a": {"tag": "leaf_ast_from_dict_ref", "text": "hello"},
                 "b": {"tag": "leaf_ast_from_dict_ref", "text": "world"},
@@ -328,7 +331,7 @@ class TestProgramDeserialization:
             num: int
 
         json_str = """{
-            "root": "v",
+            "root": {"tag": "ref", "id": "v"},
             "nodes": {
                 "v": {"tag": "value_ast_from_json", "num": 42}
             }
@@ -352,7 +355,7 @@ class TestProgramDeserialization:
             right: Ref[Node[float]]
 
         json_str = """{
-            "root": "result",
+            "root": {"tag": "ref", "id": "result"},
             "nodes": {
                 "a": {"tag": "const_ast_from_json_complex", "value": 1.5},
                 "b": {"tag": "const_ast_from_json_complex", "value": 2.5},
@@ -533,7 +536,8 @@ class TestProgramEdgeCases:
 
         prog = Program(root=Ref(id="only"), nodes={"only": Single(value=42)})
 
-        assert prog.root == "only"
+        assert isinstance(prog.root, Ref)
+        assert prog.root.id == "only"
         assert len(prog.nodes) == 1
         assert prog.nodes["only"].value == 42
 
