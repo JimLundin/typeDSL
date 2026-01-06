@@ -183,7 +183,8 @@ class TestProgramSerialization:
             value: int
 
         prog = Program(
-            root=Ref(id="n1"), nodes={"n1": Num(value=42), "n2": Num(value=100)},
+            root=Ref(id="n1"),
+            nodes={"n1": Num(value=42), "n2": Num(value=100)},
         )
 
         result = prog.to_dict()
