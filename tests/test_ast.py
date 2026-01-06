@@ -5,37 +5,55 @@ from typing import Any
 
 import pytest
 
-from typedsl.ast import AST, Interpreter
+from typedsl.ast import Program, Interpreter
 from typedsl.nodes import Node, Ref
 
 
-class TestASTBasics:
-    """Test basic AST functionality."""
+class TestProgramBasics:
+    """Test basic Program functionality."""
 
-    def test_ast_creation(self) -> None:
-        """Test creating an AST."""
+    def test_program_creation_with_ref_root(self) -> None:
+        """Test creating a Program with reference root."""
 
-        class Literal(Node[int], tag="literal_ast"):
+        class Literal(Node[int], tag="literal_prog"):
             value: int
 
         nodes = {"node1": Literal(value=42), "node2": Literal(value=100)}
-        ast = AST(root="node1", nodes=nodes)
+        prog = Program(root=Ref(id="node1"), nodes=nodes)
 
-        assert ast.root == "node1"
-        assert len(ast.nodes) == 2
-        assert "node1" in ast.nodes
-        assert "node2" in ast.nodes
+        assert isinstance(prog.root, Ref)
+        assert prog.root.id == "node1"
+        assert len(prog.nodes) == 2
+        assert "node1" in prog.nodes
+        assert "node2" in prog.nodes
 
-    def test_ast_with_empty_nodes(self) -> None:
-        """Test creating AST with no nodes."""
-        ast = AST(root="", nodes={})
+    def test_program_creation_with_node_root(self) -> None:
+        """Test creating a Program with direct node as root."""
 
-        assert ast.root == ""
-        assert len(ast.nodes) == 0
+        class Literal(Node[int], tag="literal_prog_node"):
+            value: int
+
+        root_node = Literal(value=42)
+        prog = Program(root=root_node)
+
+        assert isinstance(prog.root, Node)
+        assert prog.root.value == 42
+        assert len(prog.nodes) == 0
+
+    def test_program_with_empty_nodes(self) -> None:
+        """Test creating Program with no nodes dict."""
+
+        class Literal(Node[int], tag="literal_prog_empty"):
+            value: int
+
+        prog = Program(root=Literal(value=42))
+
+        assert isinstance(prog.root, Node)
+        assert len(prog.nodes) == 0
 
 
-class TestASTResolve:
-    """Test AST.resolve() reference resolution."""
+class TestProgramResolve:
+    """Test Program.resolve() reference resolution."""
 
     def test_resolve_simple_ref(self) -> None:
         """Test resolving a simple reference."""
@@ -44,10 +62,10 @@ class TestASTResolve:
             value: int
 
         node = Number(value=42)
-        ast = AST(root="num", nodes={"num": node})
+        prog = Program(root=Ref(id="num"), nodes={"num": node})
 
         ref = Ref[Node[int]](id="num")
-        resolved = ast.resolve(ref)
+        resolved = prog.resolve(ref)
 
         assert resolved is node
         assert resolved.value == 42
@@ -63,15 +81,15 @@ class TestASTResolve:
             "second": Data(text="world"),
             "third": Data(text="test"),
         }
-        ast = AST(root="first", nodes=nodes)
+        prog = Program(root=Ref(id="first"), nodes=nodes)
 
         ref1 = Ref[Node[str]](id="first")
         ref2 = Ref[Node[str]](id="second")
         ref3 = Ref[Node[str]](id="third")
 
-        assert ast.resolve(ref1).text == "hello"
-        assert ast.resolve(ref2).text == "world"
-        assert ast.resolve(ref3).text == "test"
+        assert prog.resolve(ref1).text == "hello"
+        assert prog.resolve(ref2).text == "world"
+        assert prog.resolve(ref3).text == "test"
 
     def test_resolve_with_shared_nodes(self) -> None:
         """Test resolving refs in a graph with shared nodes."""
@@ -84,8 +102,8 @@ class TestASTResolve:
             right: Ref[Node[float]]
 
         # Create AST where "x" is shared
-        ast = AST(
-            root="result",
+        prog = Program(
+            root=Ref(id="result"),
             nodes={
                 "x": Const(value=5.0),
                 "y": Const(value=3.0),
@@ -95,8 +113,8 @@ class TestASTResolve:
         )
 
         # Resolve x from two different contexts
-        x_from_sum = ast.resolve(ast.nodes["sum"].left)
-        x_from_result = ast.resolve(ast.nodes["result"].right)
+        x_from_sum = prog.resolve(prog.nodes["sum"].left)
+        x_from_result = prog.resolve(prog.nodes["result"].right)
 
         # Should be the same object
         assert x_from_sum is x_from_result
@@ -108,12 +126,12 @@ class TestASTResolve:
         class Item(Node[int], tag="item_resolve_err"):
             value: int
 
-        ast = AST(root="root", nodes={"root": Item(value=1)})
+        prog = Program(root=Ref(id="root"), nodes={"root": Item(value=1)})
 
         ref = Ref[Node[int]](id="nonexistent")
 
         with pytest.raises(KeyError, match="Node 'nonexistent' not found in AST"):
-            ast.resolve(ref)
+            prog.resolve(ref)
 
     def test_resolve_error_lists_available_nodes(self) -> None:
         """Test that error message lists available node IDs."""
@@ -121,15 +139,15 @@ class TestASTResolve:
         class Item(Node[int], tag="item_resolve_list"):
             value: int
 
-        ast = AST(
-            root="a",
+        prog = Program(
+            root=Ref(id="a"),
             nodes={"a": Item(value=1), "b": Item(value=2), "c": Item(value=3)},
         )
 
         ref = Ref[Node[int]](id="missing")
 
         with pytest.raises(KeyError) as exc_info:
-            ast.resolve(ref)
+            prog.resolve(ref)
 
         error_msg = str(exc_info.value)
         # Error should mention available IDs
@@ -145,28 +163,28 @@ class TestASTResolve:
             text: str
 
         node = StringNode(text="hello")
-        ast = AST(root="str", nodes={"str": node})
+        prog = Program(root=Ref(id="str"), nodes={"str": node})
 
         ref = Ref[Node[str]](id="str")
-        resolved = ast.resolve(ref)
+        resolved = prog.resolve(ref)
 
         # Should have the correct type at runtime
         assert isinstance(resolved, StringNode)
         assert resolved.text == "hello"
 
 
-class TestASTSerialization:
-    """Test AST serialization methods."""
+class TestProgramSerialization:
+    """Test Program serialization methods."""
 
     def test_to_dict_simple(self) -> None:
-        """Test serializing simple AST to dict."""
+        """Test serializing simple Program to dict."""
 
         class Num(Node[int], tag="num_ast_dict"):
             value: int
 
-        ast = AST(root="n1", nodes={"n1": Num(value=42), "n2": Num(value=100)})
+        prog = Program(root=Ref(id="n1"), nodes={"n1": Num(value=42), "n2": Num(value=100)})
 
-        result = ast.to_dict()
+        result = prog.to_dict()
 
         assert result["root"] == "n1"
         assert "nodes" in result
@@ -176,7 +194,7 @@ class TestASTSerialization:
         assert result["nodes"]["n1"]["value"] == 42
 
     def test_to_dict_with_refs(self) -> None:
-        """Test serializing AST with references."""
+        """Test serializing Program with references."""
 
         class Val(Node[int], tag="val_ast_dict_ref"):
             value: int
@@ -185,8 +203,8 @@ class TestASTSerialization:
             left: Ref[Node[int]]
             right: Ref[Node[int]]
 
-        ast = AST(
-            root="result",
+        prog = Program(
+            root=Ref(id="result"),
             nodes={
                 "a": Val(value=1),
                 "b": Val(value=2),
@@ -194,7 +212,7 @@ class TestASTSerialization:
             },
         )
 
-        result = ast.to_dict()
+        result = prog.to_dict()
 
         assert result["root"] == "result"
         assert result["nodes"]["result"]["left"]["tag"] == "ref"
@@ -206,7 +224,7 @@ class TestASTSerialization:
         class Simple(Node[str], tag="simple_ast_json"):
             text: str
 
-        ast = AST(root="s", nodes={"s": Simple(text="test")})
+        prog = Program(root=Ref(id="s"), nodes={"s": Simple(text="test")})
 
         json_str = ast.to_json()
 
@@ -221,7 +239,7 @@ class TestASTSerialization:
         class Item(Node[int], tag="item_ast_json_fmt"):
             value: int
 
-        ast = AST(root="i", nodes={"i": Item(value=1)})
+        prog = Program(root=Ref(id="i"), nodes={"i": Item(value=1)})
 
         json_str = ast.to_json()
 
@@ -229,8 +247,8 @@ class TestASTSerialization:
         assert "\n" in json_str
 
 
-class TestASTDeserialization:
-    """Test AST deserialization methods."""
+class TestProgramDeserialization:
+    """Test Program deserialization methods."""
 
     def test_from_dict_missing_root_key(self) -> None:
         """Test that from_dict raises error when 'root' key is missing."""
@@ -247,7 +265,7 @@ class TestASTDeserialization:
             AST.from_dict(data)
 
     def test_from_dict_simple(self) -> None:
-        """Test deserializing simple AST from dict."""
+        """Test deserializing simple Program from dict."""
 
         class Number(Node[int], tag="number_ast_from_dict"):
             value: int
@@ -262,13 +280,13 @@ class TestASTDeserialization:
 
         ast = AST.from_dict(data)
 
-        assert ast.root == "n1"
+        assert prog.root == "n1"
         assert len(ast.nodes) == 2
-        assert isinstance(ast.nodes["n1"], Number)
-        assert ast.nodes["n1"].value == 42
+        assert isinstance(prog.nodes["n1"], Number)
+        assert prog.nodes["n1"].value == 42
 
     def test_from_dict_with_refs(self) -> None:
-        """Test deserializing AST with references."""
+        """Test deserializing Program with references."""
 
         class Leaf(Node[str], tag="leaf_ast_from_dict_ref"):
             text: str
@@ -292,14 +310,14 @@ class TestASTDeserialization:
 
         ast = AST.from_dict(data)
 
-        assert ast.root == "root"
-        root_node = ast.nodes["root"]
+        assert prog.root == "root"
+        root_node = prog.nodes["root"]
         assert isinstance(root_node, Branch)
         assert root_node.left.id == "a"
         assert root_node.right.id == "b"
 
     def test_from_json_simple(self) -> None:
-        """Test deserializing AST from JSON string."""
+        """Test deserializing Program from JSON string."""
 
         class Value(Node[int], tag="value_ast_from_json"):
             num: int
@@ -313,12 +331,12 @@ class TestASTDeserialization:
 
         ast = AST.from_json(json_str)
 
-        assert ast.root == "v"
-        assert isinstance(ast.nodes["v"], Value)
-        assert ast.nodes["v"].num == 42
+        assert prog.root == "v"
+        assert isinstance(prog.nodes["v"], Value)
+        assert prog.nodes["v"].num == 42
 
     def test_from_json_with_complex_structure(self) -> None:
-        """Test deserializing complex AST from JSON."""
+        """Test deserializing complex Program from JSON."""
 
         class Const(Node[float], tag="const_ast_from_json_complex"):
             value: float
@@ -342,24 +360,24 @@ class TestASTDeserialization:
 
         ast = AST.from_json(json_str)
 
-        assert ast.root == "result"
+        assert prog.root == "result"
         assert len(ast.nodes) == 3
-        result_node = ast.nodes["result"]
+        result_node = prog.nodes["result"]
         assert isinstance(result_node, Expr)
 
 
-class TestASTRoundTrip:
-    """Test round-trip serialization of AST."""
+class TestProgramRoundTrip:
+    """Test round-trip serialization of Program."""
 
     def test_simple_ast_round_trip(self) -> None:
-        """Test simple AST round-trip through dict."""
+        """Test simple Program round-trip through dict."""
 
         class Data(Node[str], tag="data_ast_rt"):
             text: str
             count: int
 
-        original = AST(
-            root="d1",
+        original = Program(
+            root=Ref(id="d1"),
             nodes={
                 "d1": Data(text="hello", count=1),
                 "d2": Data(text="world", count=2),
@@ -367,7 +385,7 @@ class TestASTRoundTrip:
         )
 
         serialized = original.to_dict()
-        deserialized = AST.from_dict(serialized)
+        deserialized = Program.from_dict(serialized)
 
         assert deserialized.root == original.root
         assert len(deserialized.nodes) == len(original.nodes)
@@ -375,7 +393,7 @@ class TestASTRoundTrip:
         assert deserialized.nodes["d2"] == original.nodes["d2"]
 
     def test_ast_with_refs_round_trip(self) -> None:
-        """Test AST with references round-trip."""
+        """Test Program with references round-trip."""
 
         class Point(Node[tuple[int, int]], tag="point_ast_rt"):
             x: int
@@ -385,8 +403,8 @@ class TestASTRoundTrip:
             start: Ref[Node[tuple[int, int]]]
             end: Ref[Node[tuple[int, int]]]
 
-        original = AST(
-            root="line",
+        original = Program(
+            root=Ref(id="line"),
             nodes={
                 "p1": Point(x=0, y=0),
                 "p2": Point(x=10, y=10),
@@ -395,7 +413,7 @@ class TestASTRoundTrip:
         )
 
         serialized = original.to_dict()
-        deserialized = AST.from_dict(serialized)
+        deserialized = Program.from_dict(serialized)
 
         assert deserialized.root == original.root
         assert len(deserialized.nodes) == 3
@@ -412,8 +430,8 @@ class TestASTRoundTrip:
             left: Ref[Node[int]]
             right: Ref[Node[int]]
 
-        original = AST(
-            root="result",
+        original = Program(
+            root=Ref(id="result"),
             nodes={
                 "a": Num(value=5),
                 "b": Num(value=10),
@@ -422,7 +440,7 @@ class TestASTRoundTrip:
         )
 
         json_str = original.to_json()
-        deserialized = AST.from_json(json_str)
+        deserialized = Program.from_json(json_str)
 
         assert deserialized.root == original.root
         assert len(deserialized.nodes) == len(original.nodes)
@@ -431,11 +449,11 @@ class TestASTRoundTrip:
         assert deserialized.nodes["result"] == original.nodes["result"]
 
 
-class TestASTWithSharedNodes:
-    """Test AST with shared node patterns."""
+class TestProgramWithSharedNodes:
+    """Test Program with shared node patterns."""
 
     def test_diamond_pattern(self) -> None:
-        """Test AST with diamond pattern (node reused by multiple parents)."""
+        """Test Program with diamond pattern (node reused by multiple parents)."""
 
         class Val(Node[int], tag="val_diamond"):
             value: int
@@ -445,8 +463,8 @@ class TestASTWithSharedNodes:
             right: Ref[Node[int]]
 
         # Diamond: top -> (left, right) -> (both reference bottom)
-        ast = AST(
-            root="top",
+        prog = Program(
+            root=Ref(id="top"),
             nodes={
                 "bottom": Val(value=1),
                 "left": Op(left=Ref(id="bottom"), right=Ref(id="bottom")),
@@ -456,17 +474,17 @@ class TestASTWithSharedNodes:
         )
 
         # All references to "bottom" should resolve to the same node
-        bottom = ast.nodes["bottom"]
-        left_node = ast.nodes["left"]
-        right_node = ast.nodes["right"]
+        bottom = prog.nodes["bottom"]
+        left_node = prog.nodes["left"]
+        right_node = prog.nodes["right"]
 
-        assert ast.resolve(left_node.left) is bottom
-        assert ast.resolve(left_node.right) is bottom
-        assert ast.resolve(right_node.left) is bottom
-        assert ast.resolve(right_node.right) is bottom
+        assert prog.resolve(left_node.left) is bottom
+        assert prog.resolve(left_node.right) is bottom
+        assert prog.resolve(right_node.left) is bottom
+        assert prog.resolve(right_node.right) is bottom
 
     def test_shared_subexpression(self) -> None:
-        """Test AST with shared subexpression."""
+        """Test Program with shared subexpression."""
 
         class Const(Node[float], tag="const_shared_sub"):
             value: float
@@ -480,8 +498,8 @@ class TestASTWithSharedNodes:
             right: Ref[Node[float]]
 
         # Expression: (x + y) * (x + y) where (x + y) is shared
-        ast = AST(
-            root="result",
+        prog = Program(
+            root=Ref(id="result"),
             nodes={
                 "x": Const(value=2.0),
                 "y": Const(value=3.0),
@@ -490,30 +508,30 @@ class TestASTWithSharedNodes:
             },
         )
 
-        result = ast.nodes["result"]
+        result = prog.nodes["result"]
         # Both sides of multiply reference the same sum node
         assert result.left.id == "sum"
         assert result.right.id == "sum"
         assert result.left == result.right
 
 
-class TestASTEdgeCases:
+class TestProgramEdgeCases:
     """Test edge cases and special scenarios."""
 
     def test_ast_with_single_node(self) -> None:
-        """Test AST with only one node."""
+        """Test Program with only one node."""
 
         class Single(Node[int], tag="single_ast"):
             value: int
 
-        ast = AST(root="only", nodes={"only": Single(value=42)})
+        prog = Program(root=Ref(id="only"), nodes={"only": Single(value=42)})
 
-        assert ast.root == "only"
+        assert prog.root == "only"
         assert len(ast.nodes) == 1
-        assert ast.nodes["only"].value == 42
+        assert prog.nodes["only"].value == 42
 
     def test_ast_root_can_be_any_node(self) -> None:
-        """Test that root can point to any node in the AST."""
+        """Test that root can point to any node in the program."""
 
         class Node1(Node[int], tag="node1_ast_root"):
             value: int
@@ -524,47 +542,54 @@ class TestASTEdgeCases:
         nodes = {"a": Node1(value=1), "b": Node2(value=2), "c": Node1(value=3)}
 
         # Root can be any of them
-        ast1 = AST(root="a", nodes=nodes)
-        assert ast1.root == "a"
+        prog1 = Program(root=Ref(id="a"), nodes=nodes)
+        assert isinstance(prog1.root, Ref)
+        assert prog1.root.id == "a"
 
-        ast2 = AST(root="b", nodes=nodes)
-        assert ast2.root == "b"
+        prog2 = Program(root=Ref(id="b"), nodes=nodes)
+        assert isinstance(prog2.root, Ref)
+        assert prog2.root.id == "b"
 
-        ast3 = AST(root="c", nodes=nodes)
-        assert ast3.root == "c"
+        prog3 = Program(root=Ref(id="c"), nodes=nodes)
+        assert isinstance(prog3.root, Ref)
+        assert prog3.root.id == "c"
 
     def test_ast_with_node_containing_none(self) -> None:
-        """Test AST with node that has None field."""
+        """Test Program with node that has None field."""
 
         class Optional(Node[str], tag="optional_ast_edge"):
             required: str
             optional: int | None
 
-        ast = AST(root="opt", nodes={"opt": Optional(required="value", optional=None)})
+        prog = Program(root=Ref(id="opt"), nodes={"opt": Optional(required="value", optional=None)})
 
-        result = ast.to_dict()
+        result = prog.to_dict()
         assert result["nodes"]["opt"]["optional"] is None
 
         # Round trip
-        restored = AST.from_dict(result)
+        restored = Program.from_dict(result)
         assert restored.nodes["opt"].optional is None
 
-    def test_empty_ast_serialization(self) -> None:
-        """Test serializing empty AST."""
-        ast = AST(root="", nodes={})
+    def test_empty_program_serialization(self) -> None:
+        """Test serializing Program with empty node as root."""
 
-        result = ast.to_dict()
-        assert result["root"] == ""
-        assert result["nodes"] == {}
+        class Empty(Node[None], tag="empty_prog"):
+            pass
+
+        prog = Program(root=Empty())
+
+        result = prog.to_dict()
+        assert result["root"]["tag"] == "empty_prog"
+        assert len(result["nodes"]) == 0
 
         # Round trip
-        restored = AST.from_dict(result)
-        assert restored.root == ""
+        restored = Program.from_dict(result)
+        assert isinstance(restored.root, Empty)
         assert len(restored.nodes) == 0
 
 
-class TestASTIntegrationExamples:
-    """Test complete real-world-like examples using AST."""
+class TestProgramIntegrationExamples:
+    """Test complete real-world-like examples using Program."""
 
     def test_expression_tree_example(self) -> None:
         """Test complete expression tree: (a + b) * c."""
@@ -577,8 +602,8 @@ class TestASTIntegrationExamples:
             left: Ref[Node[float]]
             right: Ref[Node[float]]
 
-        ast = AST(
-            root="result",
+        prog = Program(
+            root=Ref(id="result"),
             nodes={
                 "a": Var(name="a"),
                 "b": Var(name="b"),
@@ -589,8 +614,8 @@ class TestASTIntegrationExamples:
         )
 
         # Verify structure
-        assert ast.root == "result"
-        result_node = ast.nodes["result"]
+        assert prog.root == "result"
+        result_node = prog.nodes["result"]
         assert result_node.op == "*"
         assert result_node.left.id == "sum"
         assert result_node.right.id == "c"
@@ -615,8 +640,8 @@ class TestASTIntegrationExamples:
             right: Ref[Node[int]]
 
         # Graph: input -> (transform1, transform2) -> merge
-        ast = AST(
-            root="output",
+        prog = Program(
+            root=Ref(id="output"),
             nodes={
                 "input": Input(source="data.csv"),
                 "t1": Transform(func="normalize", input=Ref(id="input")),
@@ -626,16 +651,16 @@ class TestASTIntegrationExamples:
         )
 
         # Both transforms reference the same input
-        t1 = ast.nodes["t1"]
-        t2 = ast.nodes["t2"]
-        assert ast.resolve(t1.input) is ast.nodes["input"]
-        assert ast.resolve(t2.input) is ast.nodes["input"]
+        t1 = prog.nodes["t1"]
+        t2 = prog.nodes["t2"]
+        assert prog.resolve(t1.input) is prog.nodes["input"]
+        assert prog.resolve(t2.input) is prog.nodes["input"]
 
         # Verify round-trip
-        serialized = ast.to_dict()
-        restored = AST.from_dict(serialized)
-        assert restored.root == ast.root
-        assert len(restored.nodes) == len(ast.nodes)
+        serialized = prog.to_dict()
+        restored = Program.from_dict(serialized)
+        assert restored.root == prog.root
+        assert len(restored.nodes) == len(prog.nodes)
 
 
 class TestInterpreterBasics:
@@ -647,10 +672,10 @@ class TestInterpreterBasics:
         class Num(Node[int], tag="num_interp_abstract"):
             value: int
 
-        ast = AST(root="n", nodes={"n": Num(value=1)})
+        prog = Program(root=Ref(id="n"), nodes={"n": Num(value=1)})
 
         with pytest.raises(TypeError, match="abstract"):
-            Interpreter(ast, None)  # type: ignore[abstract]
+            Interpreter(prog)  # type: ignore[abstract]
 
     def test_simple_interpreter(self) -> None:
         """Test a simple interpreter that evaluates constants."""
@@ -667,8 +692,8 @@ class TestInterpreterBasics:
                         msg = f"Unknown node: {type(node)}"
                         raise NotImplementedError(msg)
 
-        ast = AST(root="c", nodes={"c": Const(value=42.0)})
-        result = Calculator(ast, None).run()
+        prog = Program(root=Ref(id="c"), nodes={"c": Const(value=42.0)})
+        result = Calculator(prog).run(None)
 
         assert result == 42.0
 
@@ -687,13 +712,13 @@ class TestInterpreterBasics:
                         msg = f"Unknown node: {type(node)}"
                         raise NotImplementedError(msg)
 
-        ast = AST(root="x", nodes={"x": Var(name="x")})
-        result = Calculator(ast, {"x": 10.0, "y": 20.0}).run()
+        prog = Program(root=Ref(id="x"), nodes={"x": Var(name="x")})
+        result = Calculator(prog).run({"x": 10.0, "y": 20.0})
 
         assert result == 10.0
 
     def test_interpreter_has_ast_access(self) -> None:
-        """Test that interpreter has access to the AST."""
+        """Test that interpreter has access to the program."""
 
         class Num(Node[int], tag="num_interp_ast_access"):
             value: int
@@ -701,13 +726,13 @@ class TestInterpreterBasics:
         class Inspector(Interpreter[None, int]):
             def eval(self, _node: Node[Any]) -> int:
                 # Access ast from within eval
-                return len(self.ast.nodes)
+                return len(self.program.nodes)
 
-        ast = AST(
-            root="a",
+        prog = Program(
+            root=Ref(id="a"),
             nodes={"a": Num(value=1), "b": Num(value=2), "c": Num(value=3)},
         )
-        result = Inspector(ast, None).run()
+        result = Inspector(prog).run(None)
 
         assert result == 3
 
@@ -735,14 +760,14 @@ class TestInterpreterResolve:
                     case _:
                         raise NotImplementedError
 
-        ast = AST(
-            root="w",
+        prog = Program(
+            root=Ref(id="w"),
             nodes={
                 "v": Val(value=42),
                 "w": Wrapper(inner=Ref(id="v")),
             },
         )
-        result = Evaluator(ast, None).run()
+        result = Evaluator(prog).run(None)
 
         assert result == 42
 
@@ -766,15 +791,15 @@ class TestInterpreterResolve:
                     case _:
                         raise NotImplementedError
 
-        ast = AST(
-            root="sum",
+        prog = Program(
+            root=Ref(id="sum"),
             nodes={
                 "a": Const(value=10.0),
                 "b": Const(value=32.0),
                 "sum": Add(left=Ref(id="a"), right=Ref(id="b")),
             },
         )
-        result = Calculator(ast, None).run()
+        result = Calculator(prog).run(None)
 
         assert result == 42.0
 
@@ -808,8 +833,8 @@ class TestInterpreterWithSharedNodes:
                         raise NotImplementedError
 
         # x is shared: result = x + x
-        ast = AST(
-            root="result",
+        prog = Program(
+            root=Ref(id="result"),
             nodes={
                 "x": Counter(value=5),
                 "result": Add(left=Ref(id="x"), right=Ref(id="x")),
@@ -850,8 +875,8 @@ class TestInterpreterWithSharedNodes:
                         raise NotImplementedError
 
         # Expression: (x * y) + (x * y) where (x * y) is shared
-        ast = AST(
-            root="result",
+        prog = Program(
+            root=Ref(id="result"),
             nodes={
                 "x": Const(value=3.0),
                 "y": Const(value=4.0),
@@ -860,7 +885,7 @@ class TestInterpreterWithSharedNodes:
             },
         )
 
-        result = Calculator(ast, None).run()
+        result = Calculator(prog).run(None)
         assert result == 24.0  # (3 * 4) + (3 * 4) = 12 + 12 = 24
 
 
@@ -900,8 +925,8 @@ class TestInterpreterUserMemoization:
                         raise NotImplementedError
 
         # x is shared: result = x + x
-        ast = AST(
-            root="result",
+        prog = Program(
+            root=Ref(id="result"),
             nodes={
                 "x": Const(value=5),
                 "result": Add(left=Ref(id="x"), right=Ref(id="x")),
@@ -953,8 +978,8 @@ class TestInterpreterComplexExamples:
                         raise NotImplementedError(msg)
 
         # Expression: (x + 2) * (y - 1)
-        ast = AST(
-            root="result",
+        prog = Program(
+            root=Ref(id="result"),
             nodes={
                 "x": Var(name="x"),
                 "y": Var(name="y"),
@@ -966,7 +991,7 @@ class TestInterpreterComplexExamples:
             },
         )
 
-        result = ArithmeticEvaluator(ast, {"x": 3.0, "y": 5.0}).run()
+        result = ArithmeticEvaluator(prog).run({"x": 3.0, "y": 5.0})
         # (3 + 2) * (5 - 1) = 5 * 4 = 20
         assert result == 20.0
 
@@ -990,8 +1015,8 @@ class TestInterpreterComplexExamples:
                     case _:
                         raise NotImplementedError
 
-        ast = AST(
-            root="result",
+        prog = Program(
+            root=Ref(id="result"),
             nodes={
                 "hello": StrLiteral(value="Hello"),
                 "space": StrLiteral(value=" "),
@@ -1001,7 +1026,7 @@ class TestInterpreterComplexExamples:
             },
         )
 
-        result = StringInterpreter(ast, None).run()
+        result = StringInterpreter(prog).run()
         assert result == "Hello World"
 
     def test_interpreter_with_inline_and_ref_nodes(self) -> None:
@@ -1036,8 +1061,8 @@ class TestInterpreterComplexExamples:
                         raise NotImplementedError
 
         # Mix of inline and ref nodes
-        ast = AST(
-            root="result",
+        prog = Program(
+            root=Ref(id="result"),
             nodes={
                 "shared": Const(value=10),
                 # result has inline left and ref right
@@ -1045,5 +1070,5 @@ class TestInterpreterComplexExamples:
             },
         )
 
-        result = MixedEvaluator(ast, None).run()
+        result = MixedEvaluator(prog).run(None)
         assert result == 15
