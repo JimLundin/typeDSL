@@ -119,51 +119,26 @@ class PythonASTInterpreter(Interpreter[dict[str, Any], Any]):
 
 
 # ============================================================================
-# Example
+# Example: Convert and evaluate Python expression (a + b) * 2
 # ============================================================================
 
-def main():
-    """Convert and evaluate: (a + b) * 2"""
+python_code = "(a + b) * 2"
 
-    python_code = "(a + b) * 2"
-    print(f"Python code: {python_code}\n")
+# Parse with Python's ast module
+py_ast = python_ast.parse(python_code, mode="eval")
 
-    # Parse with Python's ast module
-    py_ast = python_ast.parse(python_code, mode="eval")
+# Convert Python AST to typeDSL Program
+converter = PythonASTConverter()
+program = converter.convert(py_ast.body)
+# Creates 5 nodes: const_0, const_1, name_0, binop_0, binop_1
 
-    # Convert to typeDSL
-    converter = PythonASTConverter()
-    program = converter.convert(py_ast.body)
+# Program can be serialized/deserialized
+json_str = program.to_json()
+restored_program = Program.from_json(json_str)
 
-    print(f"Created {len(program.nodes)} typeDSL nodes\n")
+# Create interpreter once, reuse with different environments
+interpreter = PythonASTInterpreter(restored_program)
 
-    # Serialize to JSON
-    json_str = program.to_json()
-    print("typeDSL Program as JSON:")
-    print(json_str)
-    print()
-
-    # Deserialize and evaluate
-    restored_program = Program.from_json(json_str)
-
-    # Create interpreter once, can reuse with different environments
-    interpreter = PythonASTInterpreter(restored_program)
-
-    # Run with environment
-    env = {"a": 3, "b": 7}
-    result = interpreter.run(env)
-
-    print(f"Environment: {env}")
-    print(f"Result: {result}")
-    print(f"Expected: {eval(python_code, env)}")
-
-    # Can reuse interpreter with different environment
-    env2 = {"a": 10, "b": 5}
-    result2 = interpreter.run(env2)
-    print(f"\nEnvironment: {env2}")
-    print(f"Result: {result2}")
-    print(f"Expected: {eval(python_code, env2)}")
-
-
-if __name__ == "__main__":
-    main()
+# Run with different variable bindings
+result1 = interpreter.run({"a": 3, "b": 7})    # result1 = 20
+result2 = interpreter.run({"a": 10, "b": 5})   # result2 = 30
