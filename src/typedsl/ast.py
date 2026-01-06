@@ -7,12 +7,13 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
+from typedsl.nodes import Ref
 from typedsl.serialization import from_dict, to_dict
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from typedsl.nodes import Node, Ref
+    from typedsl.nodes import Node
 
 
 @dataclass
@@ -43,7 +44,9 @@ class Program:
         """
         if ref.id not in self.nodes:
             available = list(self.nodes.keys())
-            msg = f"Node '{ref.id}' not found in program. Available node IDs: {available}"
+            msg = (
+                f"Node '{ref.id}' not found in program. Available node IDs: {available}"
+            )
             raise KeyError(msg)
         return cast("X", self.nodes[ref.id])
 
@@ -115,7 +118,9 @@ class Interpreter[Ctx, R](ABC):
                     (for graphs with shared nodes and references)
 
         """
-        self.program = program if isinstance(program, Program) else Program(root=program)
+        self.program = (
+            program if isinstance(program, Program) else Program(root=program)
+        )
 
     def run(self, ctx: Ctx) -> R:
         """Run the program with the given context.

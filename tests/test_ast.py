@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from typedsl.ast import Program, Interpreter
+from typedsl.ast import Interpreter, Program
 from typedsl.nodes import Node, Ref
 
 
@@ -182,7 +182,9 @@ class TestProgramSerialization:
         class Num(Node[int], tag="num_ast_dict"):
             value: int
 
-        prog = Program(root=Ref(id="n1"), nodes={"n1": Num(value=42), "n2": Num(value=100)})
+        prog = Program(
+            root=Ref(id="n1"), nodes={"n1": Num(value=42), "n2": Num(value=100)},
+        )
 
         result = prog.to_dict()
 
@@ -226,7 +228,7 @@ class TestProgramSerialization:
 
         prog = Program(root=Ref(id="s"), nodes={"s": Simple(text="test")})
 
-        json_str = ast.to_json()
+        json_str = prog.to_json()
 
         # Should be valid JSON
         parsed = json.loads(json_str)
@@ -241,7 +243,7 @@ class TestProgramSerialization:
 
         prog = Program(root=Ref(id="i"), nodes={"i": Item(value=1)})
 
-        json_str = ast.to_json()
+        json_str = prog.to_json()
 
         # Should contain newlines (formatted)
         assert "\n" in json_str
@@ -255,14 +257,14 @@ class TestProgramDeserialization:
         data = {"nodes": {}}  # Missing 'root' key
 
         with pytest.raises(KeyError, match="Missing required key 'root'"):
-            AST.from_dict(data)
+            Program.from_dict(data)
 
     def test_from_dict_missing_nodes_key(self) -> None:
         """Test that from_dict raises error when 'nodes' key is missing."""
         data = {"root": "test"}  # Missing 'nodes' key
 
         with pytest.raises(KeyError, match="Missing required key 'nodes'"):
-            AST.from_dict(data)
+            Program.from_dict(data)
 
     def test_from_dict_simple(self) -> None:
         """Test deserializing simple Program from dict."""
@@ -278,10 +280,11 @@ class TestProgramDeserialization:
             },
         }
 
-        ast = AST.from_dict(data)
+        prog = Program.from_dict(data)
 
-        assert prog.root == "n1"
-        assert len(ast.nodes) == 2
+        assert isinstance(prog.root, Ref)
+        assert prog.root.id == "n1"
+        assert len(prog.nodes) == 2
         assert isinstance(prog.nodes["n1"], Number)
         assert prog.nodes["n1"].value == 42
 
@@ -308,9 +311,10 @@ class TestProgramDeserialization:
             },
         }
 
-        ast = AST.from_dict(data)
+        prog = Program.from_dict(data)
 
-        assert prog.root == "root"
+        assert isinstance(prog.root, Ref)
+        assert prog.root.id == "root"
         root_node = prog.nodes["root"]
         assert isinstance(root_node, Branch)
         assert root_node.left.id == "a"
@@ -329,9 +333,10 @@ class TestProgramDeserialization:
             }
         }"""
 
-        ast = AST.from_json(json_str)
+        prog = Program.from_json(json_str)
 
-        assert prog.root == "v"
+        assert isinstance(prog.root, Ref)
+        assert prog.root.id == "v"
         assert isinstance(prog.nodes["v"], Value)
         assert prog.nodes["v"].num == 42
 
@@ -358,10 +363,11 @@ class TestProgramDeserialization:
             }
         }"""
 
-        ast = AST.from_json(json_str)
+        prog = Program.from_json(json_str)
 
-        assert prog.root == "result"
-        assert len(ast.nodes) == 3
+        assert isinstance(prog.root, Ref)
+        assert prog.root.id == "result"
+        assert len(prog.nodes) == 3
         result_node = prog.nodes["result"]
         assert isinstance(result_node, Expr)
 
@@ -527,7 +533,7 @@ class TestProgramEdgeCases:
         prog = Program(root=Ref(id="only"), nodes={"only": Single(value=42)})
 
         assert prog.root == "only"
-        assert len(ast.nodes) == 1
+        assert len(prog.nodes) == 1
         assert prog.nodes["only"].value == 42
 
     def test_ast_root_can_be_any_node(self) -> None:
@@ -561,7 +567,10 @@ class TestProgramEdgeCases:
             required: str
             optional: int | None
 
-        prog = Program(root=Ref(id="opt"), nodes={"opt": Optional(required="value", optional=None)})
+        prog = Program(
+            root=Ref(id="opt"),
+            nodes={"opt": Optional(required="value", optional=None)},
+        )
 
         result = prog.to_dict()
         assert result["nodes"]["opt"]["optional"] is None
@@ -614,16 +623,17 @@ class TestProgramIntegrationExamples:
         )
 
         # Verify structure
-        assert prog.root == "result"
+        assert isinstance(prog.root, Ref)
+        assert prog.root.id == "result"
         result_node = prog.nodes["result"]
         assert result_node.op == "*"
         assert result_node.left.id == "sum"
         assert result_node.right.id == "c"
 
         # Verify serialization
-        json_str = ast.to_json()
-        restored = AST.from_json(json_str)
-        assert restored == ast
+        json_str = prog.to_json()
+        restored = Program.from_json(json_str)
+        assert restored == prog
 
     def test_dataflow_graph_example(self) -> None:
         """Test dataflow graph with shared inputs."""
@@ -818,8 +828,8 @@ class TestInterpreterWithSharedNodes:
             right: Ref[Node[int]]
 
         class CountingEvaluator(Interpreter[None, int]):
-            def __init__(self, ast: AST, ctx: None) -> None:
-                super().__init__(ast, ctx)
+            def __init__(self, program: Node[Any] | Program) -> None:
+                super().__init__(program)
                 self.eval_count = 0
 
             def eval(self, node: Node[Any]) -> int:
@@ -841,8 +851,8 @@ class TestInterpreterWithSharedNodes:
             },
         )
 
-        evaluator = CountingEvaluator(ast, None)
-        result = evaluator.run()
+        evaluator = CountingEvaluator(prog)
+        result = evaluator.run(None)
 
         assert result == 10
         # x is evaluated twice (once for left, once for right), plus result itself
@@ -903,8 +913,8 @@ class TestInterpreterUserMemoization:
             right: Ref[Node[int]]
 
         class MemoizingCalculator(Interpreter[None, int]):
-            def __init__(self, ast: AST, ctx: None) -> None:
-                super().__init__(ast, ctx)
+            def __init__(self, program: Node[Any] | Program) -> None:
+                super().__init__(program)
                 self._cache: dict[str, int] = {}
                 self.eval_count = 0
 
@@ -933,8 +943,8 @@ class TestInterpreterUserMemoization:
             },
         )
 
-        evaluator = MemoizingCalculator(ast, None)
-        result = evaluator.run()
+        evaluator = MemoizingCalculator(prog)
+        result = evaluator.run(None)
 
         assert result == 10
         # With memoization, x is only evaluated once
@@ -1026,7 +1036,7 @@ class TestInterpreterComplexExamples:
             },
         )
 
-        result = StringInterpreter(prog).run()
+        result = StringInterpreter(prog).run(None)
         assert result == "Hello World"
 
     def test_interpreter_with_inline_and_ref_nodes(self) -> None:
