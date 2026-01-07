@@ -4,9 +4,9 @@ DPM-XL Lazy Polars Interpreter
 
 A financial validation expression evaluator demonstrating:
 - Complex AST node definitions with various arities
-- Custom interpreter pattern that produces Polars expressions
-- Lazy evaluation model with deferred execution
-- Context-based operand registration and alignment
+- Interpreter extending the typeDSL base class
+- Lazy evaluation model where eval() returns complete EvalResult
+- Sub-interpreters for aggregate operations
 
 This example shows how to implement a domain-specific language for
 financial data validation rules using Polars lazy execution.
@@ -21,10 +21,10 @@ from typing import TYPE_CHECKING, Any
 
 import polars as pl
 
-from typedsl import Node, Program, Ref
+from typedsl import Interpreter, Node, Program, Ref
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Sequence
 
 
 # ============================================================================
@@ -254,103 +254,74 @@ class EvalResult:
         return self.lf.collect()
 
 
-@dataclass
-class Operand:
-    """A registered lazy operand."""
-
-    lf: pl.LazyFrame
-    keys: frozenset[str]
-    col_name: str
-
-
 class Context(ABC):
-    """Base evaluation context using lazy computation."""
-
-    def __init__(self) -> None:
-        """Initialize context with empty operand list."""
-        self._operands: list[Operand] = []
-        self._counter: int = 0
+    """Base evaluation context - provides data access."""
 
     @abstractmethod
-    def fetch_selection(self, sel: Selection) -> tuple[pl.LazyFrame, frozenset[str]]:
-        """Fetch data as LazyFrame. Returns (lazy_frame, keys)."""
+    def fetch_selection(self, sel: Selection) -> EvalResult:
+        """Fetch data for a selection as EvalResult."""
 
     @abstractmethod
     def child(self) -> Context:
-        """Create child context for sub-expressions."""
+        """Create child context for sub-interpreters."""
 
-    def _next_col(self) -> str:
-        """Generate unique column name for operand."""
-        name = f"f_{self._counter}"
-        self._counter += 1
-        return name
 
-    def register(self, lf: pl.LazyFrame, keys: frozenset[str]) -> pl.Expr:
-        """Register a LazyFrame operand, return expression for its fact column."""
-        col_name = self._next_col()
-        self._operands.append(
-            Operand(
-                lf=lf.rename({"f": col_name}),
-                keys=keys,
-                col_name=col_name,
-            )
-        )
-        return pl.col(col_name)
+def align_results(results: Sequence[EvalResult]) -> tuple[pl.LazyFrame, frozenset[str]]:
+    """Align multiple EvalResults into a single LazyFrame.
 
-    def register_scalar(self, value: float | int | bool | None) -> pl.Expr:
-        """Register a scalar literal."""
-        lf = pl.LazyFrame({"f": [value]})
-        return self.register(lf, frozenset())
+    Returns the aligned LazyFrame with columns f_0, f_1, ... and the combined keys.
+    """
+    if not results:
+        msg = "No results to align"
+        raise ValueError(msg)
 
-    def register_selection(self, selection: Selection) -> pl.Expr:
-        """Fetch and register a selection."""
-        lf, keys = self.fetch_selection(selection)
-        return self.register(lf, keys)
+    if len(results) == 1:
+        r = results[0]
+        return r.lf.rename({"f": "f_0"}), r.keys
 
-    def align(self) -> tuple[pl.LazyFrame, frozenset[str]]:
-        """Build lazy join plan for all registered operands."""
-        if not self._operands:
-            msg = "No operands registered"
-            raise ValueError(msg)
+    # Map result id to its index (avoids LazyFrame comparison issues)
+    result_to_idx = {id(r): i for i, r in enumerate(results)}
 
-        if len(self._operands) == 1:
-            op = self._operands[0]
-            return op.lf, op.keys
+    scalars = [r for r in results if r.is_scalar]
+    recordsets = [r for r in results if not r.is_scalar]
 
-        scalars = [op for op in self._operands if len(op.keys) == 0]
-        recordsets = [op for op in self._operands if len(op.keys) > 0]
+    if not recordsets:
+        # All scalars: horizontal concat
+        frames = [r.lf.rename({"f": f"f_{result_to_idx[id(r)]}"}) for r in results]
+        combined = pl.concat(frames, how="horizontal")
+        return combined, frozenset()
 
-        if not recordsets:
-            # All scalars: horizontal concat (lazy)
-            combined = pl.concat([op.lf for op in scalars], how="horizontal")
-            return combined, frozenset()
+    # Start with first recordset
+    first = recordsets[0]
+    result_lf = first.lf.rename({"f": f"f_{result_to_idx[id(first)]}"})
+    result_keys = set(first.keys)
 
-        # Build lazy join chain
-        result = recordsets[0].lf
-        result_keys = set(recordsets[0].keys)
+    # Join remaining recordsets
+    for r in recordsets[1:]:
+        idx = result_to_idx[id(r)]
+        r_lf = r.lf.rename({"f": f"f_{idx}"})
+        common = list(result_keys & r.keys)
+        result_keys = result_keys | r.keys
 
-        for op in recordsets[1:]:
-            common = list(result_keys & op.keys)
-            result_keys = result_keys | op.keys
+        if common:
+            result_lf = result_lf.join(r_lf, on=common, how="inner")
+        else:
+            result_lf = result_lf.join(r_lf, how="cross")
 
-            if common:
-                result = result.join(op.lf, on=common, how="inner")
-            else:
-                result = result.join(op.lf, how="cross")
+    # Add scalar columns as literals
+    for r in scalars:
+        idx = result_to_idx[id(r)]
+        col_name = f"f_{idx}"
+        scalar_val = r.lf.select(pl.col("f").first()).collect().item()
+        result_lf = result_lf.with_columns(pl.lit(scalar_val).alias(col_name))
 
-        # Add scalar columns as literals (lazy)
-        for op in scalars:
-            # Use first() to get scalar value lazily
-            scalar_col = op.lf.select(pl.col(op.col_name).first()).collect().item()
-            result = result.with_columns(pl.lit(scalar_col).alias(op.col_name))
+    return result_lf, frozenset(result_keys)
 
-        return result, frozenset(result_keys)
 
-    def finalize(self, expr: pl.Expr) -> EvalResult:
-        """Build final lazy computation plan."""
-        aligned_lf, keys = self.align()
-        result_lf = aligned_lf.with_columns(expr.alias("f")).select([*list(keys), "f"])
-        return EvalResult(lf=result_lf, keys=keys)
+def make_result(lf: pl.LazyFrame, keys: frozenset[str], expr: pl.Expr) -> EvalResult:
+    """Create EvalResult from aligned LazyFrame and expression."""
+    result_lf = lf.with_columns(expr.alias("f")).select([*list(keys), "f"])
+    return EvalResult(lf=result_lf, keys=keys)
 
 
 # ============================================================================
@@ -358,27 +329,12 @@ class Context(ABC):
 # ============================================================================
 
 
-class DPMInterpreter:
+class DPMInterpreter(Interpreter[Context, EvalResult]):
     """Interpreter for DPM-XL expressions.
 
-    Note: This interpreter doesn't use the typeDSL Interpreter base class
-    because it follows a different pattern where:
-    - eval() returns pl.Expr (not the final result)
-    - run() calls eval() then ctx.finalize() to produce EvalResult
-    - Context manages operand registration and alignment
-
-    This is a deliberate design choice to support the lazy Polars execution model.
+    Extends the typeDSL Interpreter base class. Each eval() call returns
+    a complete EvalResult. Sub-interpreters are used for aggregates.
     """
-
-    def __init__(self, program: Node[Any] | Program) -> None:
-        """Initialize the interpreter with a program."""
-        self.program = (
-            program if isinstance(program, Program) else Program(root=program)
-        )
-
-    def resolve[X](self, ref: Ref[X]) -> X:
-        """Resolve a reference to its target node."""
-        return self.program.resolve(ref)
 
     def _get_node[T](self, child: Node[T] | Ref[Node[T]]) -> Node[T]:
         """Get actual node from child (which may be ref or direct node)."""
@@ -386,186 +342,212 @@ class DPMInterpreter:
             return self.resolve(child)  # type: ignore[return-value]
         return child
 
-    def run(self, ctx: Context) -> EvalResult:
-        """Evaluate AST, return lazy result."""
-        root = self.program.get_root_node()
-        expr = self.eval(root, ctx)
-        return ctx.finalize(expr)
+    def _eval_binary(
+        self,
+        left: Node[Any] | Ref[Node[Any]],
+        right: Node[Any] | Ref[Node[Any]],
+        op: str,
+    ) -> EvalResult:
+        """Evaluate binary operation."""
+        left_result = self.eval(self._get_node(left))
+        right_result = self.eval(self._get_node(right))
+        aligned_lf, keys = align_results([left_result, right_result])
 
-    def eval(self, node: Node[Any], ctx: Context) -> pl.Expr:
-        """Evaluate node to Polars expression."""
-        match node:
-            # --- Leaves ---
-            case Literal_(value=v):
-                return ctx.register_scalar(v)
+        ops = {
+            ">": pl.col("f_0") > pl.col("f_1"),
+            "<": pl.col("f_0") < pl.col("f_1"),
+            ">=": pl.col("f_0") >= pl.col("f_1"),
+            "<=": pl.col("f_0") <= pl.col("f_1"),
+        }
+        return make_result(aligned_lf, keys, ops[op])
 
-            case Selection() as sel:
-                return ctx.register_selection(sel)
-
-            # --- Arithmetic (n-ary) ---
-            case Add(operands=ops):
-                return reduce(lambda a, b: a + b, self._eval_many(ops, ctx))
-
-            case Sub(operands=ops):
-                return reduce(lambda a, b: a - b, self._eval_many(ops, ctx))
-
-            case Mul(operands=ops):
-                return reduce(lambda a, b: a * b, self._eval_many(ops, ctx))
-
-            case Div(operands=ops):
-                return reduce(lambda a, b: a / b, self._eval_many(ops, ctx))
-
-            # --- Comparison ---
-            case Eq(operands=ops):
-                exprs = list(self._eval_many(ops, ctx))
-                pairs = [exprs[i] == exprs[i + 1] for i in range(len(exprs) - 1)]
-                return reduce(lambda a, b: a & b, pairs) if len(pairs) > 1 else pairs[0]
-
-            case Gt(left=l, right=r):
-                return self.eval(self._get_node(l), ctx) > self.eval(
-                    self._get_node(r), ctx
-                )
-
-            case Lt(left=l, right=r):
-                return self.eval(self._get_node(l), ctx) < self.eval(
-                    self._get_node(r), ctx
-                )
-
-            case Ge(left=l, right=r):
-                return self.eval(self._get_node(l), ctx) >= self.eval(
-                    self._get_node(r), ctx
-                )
-
-            case Le(left=l, right=r):
-                return self.eval(self._get_node(l), ctx) <= self.eval(
-                    self._get_node(r), ctx
-                )
-
-            # --- Logical ---
-            case And(operands=ops):
-                return reduce(lambda a, b: a & b, self._eval_many(ops, ctx))
-
-            case Or(operands=ops):
-                return reduce(lambda a, b: a | b, self._eval_many(ops, ctx))
-
-            case Not(operand=op):
-                return ~self.eval(self._get_node(op), ctx)
-
-            # --- Unary ---
-            case Abs(operand=op):
-                return self.eval(self._get_node(op), ctx).abs()
-
-            case IsNull(operand=op):
-                return self.eval(self._get_node(op), ctx).is_null()
-
-            case Nvl(operand=op, default=d):
-                return self.eval(self._get_node(op), ctx).fill_null(
-                    self.eval(self._get_node(d), ctx)
-                )
-
-            # --- Element-wise min/max ---
-            case Max(operands=ops):
-                return pl.max_horizontal(*self._eval_many(ops, ctx))
-
-            case Min(operands=ops):
-                return pl.min_horizontal(*self._eval_many(ops, ctx))
-
-            # --- Conditional ---
-            case IfThenElse(condition=c, then_=t, else_=e):
-                return (
-                    pl.when(self.eval(self._get_node(c), ctx))
-                    .then(self.eval(self._get_node(t), ctx))
-                    .otherwise(self.eval(self._get_node(e), ctx))
-                )
-
-            # --- Aggregates ---
-            case Sum(operand=op, group_by=gb):
-                return self._eval_aggregate(op, gb, lambda c: c.sum(), ctx)
-
-            case Count(operand=op, group_by=gb):
-                return self._eval_aggregate(op, gb, lambda c: c.count(), ctx)
-
-            case Avg(operand=op, group_by=gb):
-                return self._eval_aggregate(op, gb, lambda c: c.mean(), ctx)
-
-            case MaxAggr(operand=op, group_by=gb):
-                return self._eval_aggregate(op, gb, lambda c: c.max(), ctx)
-
-            case MinAggr(operand=op, group_by=gb):
-                return self._eval_aggregate(op, gb, lambda c: c.min(), ctx)
-
-            # --- Filter ---
-            case Filter(data=d, condition=c):
-                return self._eval_filter(d, c, ctx)
-
-            case _:
-                msg = f"Unknown node: {type(node)}"
-                raise ValueError(msg)
-
-    def _eval_many(
-        self, nodes: tuple[Node[Any] | Ref[Node[Any]], ...], ctx: Context
-    ) -> Iterator[pl.Expr]:
-        """Evaluate multiple nodes."""
-        for node in nodes:
-            yield self.eval(self._get_node(node), ctx)
+    def _eval_nary(
+        self,
+        operands: tuple[Node[Any] | Ref[Node[Any]], ...],
+        combine: Any,
+    ) -> EvalResult:
+        """Evaluate n-ary operation."""
+        results = [self.eval(self._get_node(op)) for op in operands]
+        aligned_lf, keys = align_results(results)
+        cols = [pl.col(f"f_{i}") for i in range(len(results))]
+        expr = reduce(combine, cols)
+        return make_result(aligned_lf, keys, expr)
 
     def _eval_aggregate(
         self,
         operand: Node[float] | Ref[Node[float]],
         group_by: tuple[str, ...] | None,
-        agg_fn: Callable[[pl.Expr], pl.Expr],
-        ctx: Context,
-    ) -> pl.Expr:
-        """Aggregate stays lazy until final collect."""
-        child = ctx.child()
-        inner_expr = self.eval(self._get_node(operand), child)
-        inner_lf, _ = child.align()
+        agg_fn: Any,
+    ) -> EvalResult:
+        """Evaluate aggregate using sub-interpreter."""
+        # Create sub-interpreter for operand with shared nodes for reference resolution
+        operand_node = self._get_node(operand)
+        sub_program = Program(root=operand_node, nodes=self.program.nodes)
+        sub_interp = DPMInterpreter(sub_program)
+        child_result = sub_interp.run(self.ctx.child())
 
-        # Apply inner expression and aggregate (all lazy)
-        inner_lf = inner_lf.with_columns(inner_expr.alias("f"))
-
+        # Apply aggregation
         if group_by:
-            agg_lf = inner_lf.group_by(list(group_by)).agg(
+            agg_lf = child_result.lf.group_by(list(group_by)).agg(
                 agg_fn(pl.col("f")).alias("f")
             )
-            result_keys = frozenset(group_by)
+            return EvalResult(lf=agg_lf, keys=frozenset(group_by))
         else:
-            agg_lf = inner_lf.select(agg_fn(pl.col("f")).alias("f"))
-            result_keys = frozenset()
+            agg_lf = child_result.lf.select(agg_fn(pl.col("f")).alias("f"))
+            return EvalResult(lf=agg_lf, keys=frozenset())
 
-        return ctx.register(agg_lf, result_keys)
+    def eval(self, node: Node[Any]) -> EvalResult:
+        """Evaluate node to EvalResult."""
+        match node:
+            # --- Leaves ---
+            case Literal_(value=v):
+                lf = pl.LazyFrame({"f": [v]})
+                return EvalResult(lf=lf, keys=frozenset())
 
-    def _eval_filter(
-        self,
-        data: Node[float] | Ref[Node[float]],
-        condition: Node[bool] | Ref[Node[bool]],
-        ctx: Context,
-    ) -> pl.Expr:
-        """Filter stays lazy until final collect."""
-        # Evaluate data
-        data_ctx = ctx.child()
-        data_expr = self.eval(self._get_node(data), data_ctx)
-        data_lf, data_keys = data_ctx.align()
-        # Keep only keys + computed fact column
-        data_lf = data_lf.with_columns(data_expr.alias("f")).select(
-            [*list(data_keys), "f"]
-        )
+            case Selection() as sel:
+                return self.ctx.fetch_selection(sel)
 
-        # Evaluate condition
-        cond_ctx = ctx.child()
-        cond_expr = self.eval(self._get_node(condition), cond_ctx)
-        cond_lf, cond_keys = cond_ctx.align()
-        # Keep only keys + condition column
-        cond_lf = cond_lf.with_columns(cond_expr.alias("condition")).select(
-            [*list(cond_keys), "condition"]
-        )
+            # --- Arithmetic (n-ary) ---
+            case Add(operands=ops):
+                return self._eval_nary(ops, lambda a, b: a + b)
 
-        # Semi-join on common keys where condition is true (lazy)
-        common_keys = list(data_keys & cond_keys)
-        true_keys = cond_lf.filter(pl.col("condition")).select(common_keys)
-        filtered_lf = data_lf.join(true_keys, on=common_keys, how="semi")
+            case Sub(operands=ops):
+                return self._eval_nary(ops, lambda a, b: a - b)
 
-        return ctx.register(filtered_lf, data_keys)
+            case Mul(operands=ops):
+                return self._eval_nary(ops, lambda a, b: a * b)
+
+            case Div(operands=ops):
+                return self._eval_nary(ops, lambda a, b: a / b)
+
+            # --- Comparison ---
+            case Eq(operands=ops):
+                results = [self.eval(self._get_node(op)) for op in ops]
+                aligned_lf, keys = align_results(results)
+                cols = [pl.col(f"f_{i}") for i in range(len(results))]
+                pairs = [cols[i] == cols[i + 1] for i in range(len(cols) - 1)]
+                expr = reduce(lambda a, b: a & b, pairs) if len(pairs) > 1 else pairs[0]
+                return make_result(aligned_lf, keys, expr)
+
+            case Gt(left=l, right=r):
+                return self._eval_binary(l, r, ">")
+
+            case Lt(left=l, right=r):
+                return self._eval_binary(l, r, "<")
+
+            case Ge(left=l, right=r):
+                return self._eval_binary(l, r, ">=")
+
+            case Le(left=l, right=r):
+                return self._eval_binary(l, r, "<=")
+
+            # --- Logical ---
+            case And(operands=ops):
+                return self._eval_nary(ops, lambda a, b: a & b)
+
+            case Or(operands=ops):
+                return self._eval_nary(ops, lambda a, b: a | b)
+
+            case Not(operand=op):
+                result = self.eval(self._get_node(op))
+                return EvalResult(
+                    lf=result.lf.with_columns((~pl.col("f")).alias("f")),
+                    keys=result.keys,
+                )
+
+            # --- Unary ---
+            case Abs(operand=op):
+                result = self.eval(self._get_node(op))
+                return EvalResult(
+                    lf=result.lf.with_columns(pl.col("f").abs().alias("f")),
+                    keys=result.keys,
+                )
+
+            case IsNull(operand=op):
+                result = self.eval(self._get_node(op))
+                return EvalResult(
+                    lf=result.lf.with_columns(pl.col("f").is_null().alias("f")),
+                    keys=result.keys,
+                )
+
+            case Nvl(operand=op, default=d):
+                op_result = self.eval(self._get_node(op))
+                default_result = self.eval(self._get_node(d))
+                aligned_lf, keys = align_results([op_result, default_result])
+                expr = pl.col("f_0").fill_null(pl.col("f_1"))
+                return make_result(aligned_lf, keys, expr)
+
+            # --- Element-wise min/max ---
+            case Max(operands=ops):
+                results = [self.eval(self._get_node(op)) for op in ops]
+                aligned_lf, keys = align_results(results)
+                cols = [pl.col(f"f_{i}") for i in range(len(results))]
+                expr = pl.max_horizontal(*cols)
+                return make_result(aligned_lf, keys, expr)
+
+            case Min(operands=ops):
+                results = [self.eval(self._get_node(op)) for op in ops]
+                aligned_lf, keys = align_results(results)
+                cols = [pl.col(f"f_{i}") for i in range(len(results))]
+                expr = pl.min_horizontal(*cols)
+                return make_result(aligned_lf, keys, expr)
+
+            # --- Conditional ---
+            case IfThenElse(condition=c, then_=t, else_=e):
+                cond_result = self.eval(self._get_node(c))
+                then_result = self.eval(self._get_node(t))
+                else_result = self.eval(self._get_node(e))
+                aligned_lf, keys = align_results([cond_result, then_result, else_result])
+                expr = (
+                    pl.when(pl.col("f_0"))
+                    .then(pl.col("f_1"))
+                    .otherwise(pl.col("f_2"))
+                )
+                return make_result(aligned_lf, keys, expr)
+
+            # --- Aggregates (use sub-interpreter) ---
+            case Sum(operand=op, group_by=gb):
+                return self._eval_aggregate(op, gb, lambda c: c.sum())
+
+            case Count(operand=op, group_by=gb):
+                return self._eval_aggregate(op, gb, lambda c: c.count())
+
+            case Avg(operand=op, group_by=gb):
+                return self._eval_aggregate(op, gb, lambda c: c.mean())
+
+            case MaxAggr(operand=op, group_by=gb):
+                return self._eval_aggregate(op, gb, lambda c: c.max())
+
+            case MinAggr(operand=op, group_by=gb):
+                return self._eval_aggregate(op, gb, lambda c: c.min())
+
+            # --- Filter (use sub-interpreter) ---
+            case Filter(data=d, condition=c):
+                # Evaluate data with sub-interpreter
+                data_node = self._get_node(d)
+                data_program = Program(root=data_node, nodes=self.program.nodes)
+                data_interp = DPMInterpreter(data_program)
+                data_result = data_interp.run(self.ctx.child())
+
+                # Evaluate condition with sub-interpreter
+                cond_node = self._get_node(c)
+                cond_program = Program(root=cond_node, nodes=self.program.nodes)
+                cond_interp = DPMInterpreter(cond_program)
+                cond_result = cond_interp.run(self.ctx.child())
+
+                # Semi-join on common keys where condition is true
+                common_keys = list(data_result.keys & cond_result.keys)
+                true_keys = (
+                    cond_result.lf
+                    .filter(pl.col("f"))
+                    .select(common_keys)
+                )
+                filtered_lf = data_result.lf.join(true_keys, on=common_keys, how="semi")
+                return EvalResult(lf=filtered_lf, keys=data_result.keys)
+
+            case _:
+                msg = f"Unknown node: {type(node)}"
+                raise ValueError(msg)
 
 
 # ============================================================================
@@ -578,14 +560,13 @@ class DPMContext(Context):
 
     def __init__(self, data: pl.LazyFrame) -> None:
         """Initialize context with data source."""
-        super().__init__()
         self.data = data
 
     def child(self) -> DPMContext:
-        """Create child context for sub-expressions."""
+        """Create child context for sub-interpreters."""
         return DPMContext(self.data)
 
-    def fetch_selection(self, sel: Selection) -> tuple[pl.LazyFrame, frozenset[str]]:
+    def fetch_selection(self, sel: Selection) -> EvalResult:
         """Fetch data for a selection."""
         # Build lazy filter
         lf = self.data.filter(pl.col("table") == sel.table)
@@ -609,7 +590,7 @@ class DPMContext(Context):
         if sel.default is not None:
             lf = lf.with_columns(pl.col("f").fill_null(sel.default))
 
-        return lf, frozenset(keys)
+        return EvalResult(lf=lf, keys=frozenset(keys))
 
 
 # ============================================================================
@@ -618,7 +599,9 @@ class DPMContext(Context):
 
 
 def validate(
-    rule: Node[Any], precondition: Node[Any] | None, data: pl.LazyFrame
+    rule: Node[Any],
+    precondition: Node[Any] | None,
+    data: pl.LazyFrame,
 ) -> str | tuple[str, pl.DataFrame]:
     """Run validation rule on data.
 
@@ -633,16 +616,16 @@ def validate(
 
     """
     ctx = DPMContext(data)
-    interp = DPMInterpreter(rule)
 
-    # Check precondition (may need to collect for boolean check)
+    # Check precondition
     if precondition:
         pre_interp = DPMInterpreter(precondition)
         pre_result = pre_interp.run(ctx.child())
         if not pre_result.collect().item(0, "f"):
             return "SKIPPED"
 
-    # Run validation (stays lazy)
+    # Run validation
+    interp = DPMInterpreter(rule)
     result = interp.run(ctx)
 
     # Collect and check failures
@@ -695,7 +678,7 @@ if __name__ == "__main__":
     # Example with aggregation: Sum(T1[*, c1])
     sum_ast = Sum(
         operand=Selection(table="T1", cols=["c1"]),
-        group_by=None,  # Sum all rows
+        group_by=None,
     )
 
     ctx2 = DPMContext(sample_data)
