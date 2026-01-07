@@ -2,13 +2,13 @@
 Adapting an Existing AST
 =========================
 
-Shows how to convert an external AST (Python's ast module) to nanoDSL.
+Shows how to convert an external AST (Python's ast module) to typeDSL.
 This pattern applies to ANY existing AST: tree-sitter, ANTLR, proprietary parsers, etc.
 """
 
 import ast as python_ast
 from typing import Literal, Any
-from typedsl import Node, Ref, AST, Interpreter
+from typedsl import Node, Ref, Program, Interpreter
 
 
 # ============================================================================
@@ -33,20 +33,20 @@ class BinOp(Node[Any], tag="py_binop"):
 
 
 # ============================================================================
-# Converter: Python AST → nanoDSL
+# Converter: Python AST → typeDSL
 # ============================================================================
 
 class PythonASTConverter:
-    """Converts Python AST to nanoDSL AST."""
+    """Converts Python AST to typeDSL Program."""
 
     def __init__(self):
         self.nodes: dict[str, Node[Any]] = {}
         self.counter = 0
 
-    def convert(self, py_node: python_ast.AST) -> AST:
-        """Convert Python AST to nanoDSL AST."""
+    def convert(self, py_node: python_ast.AST) -> Program:
+        """Convert Python AST to typeDSL Program."""
         root_id = self._convert_node(py_node)
-        return AST(root=root_id, nodes=self.nodes)
+        return Program(root=Ref(id=root_id), nodes=self.nodes)
 
     def _convert_node(self, py_node: python_ast.AST) -> str:
         """Convert a single Python AST node."""
@@ -84,11 +84,11 @@ class PythonASTConverter:
 
 
 # ============================================================================
-# Interpreter for nanoDSL Python AST
+# Interpreter for typeDSL Python AST
 # ============================================================================
 
 class PythonASTInterpreter(Interpreter[dict[str, Any], Any]):
-    """Evaluates nanoDSL Python AST nodes."""
+    """Evaluates typeDSL Python AST nodes."""
 
     def eval(self, node: Node[Any]) -> Any:
         match node:
@@ -119,40 +119,26 @@ class PythonASTInterpreter(Interpreter[dict[str, Any], Any]):
 
 
 # ============================================================================
-# Example
+# Example: Convert and evaluate Python expression (a + b) * 2
 # ============================================================================
 
-def main():
-    """Convert and evaluate: (a + b) * 2"""
+python_code = "(a + b) * 2"
 
-    python_code = "(a + b) * 2"
-    print(f"Python code: {python_code}\n")
+# Parse with Python's ast module
+py_ast = python_ast.parse(python_code, mode="eval")
 
-    # Parse with Python's ast module
-    py_ast = python_ast.parse(python_code, mode="eval")
+# Convert Python AST to typeDSL Program
+converter = PythonASTConverter()
+program = converter.convert(py_ast.body)
+# Creates 5 nodes: const_0, const_1, name_0, binop_0, binop_1
 
-    # Convert to nanoDSL
-    converter = PythonASTConverter()
-    nano_ast = converter.convert(py_ast.body)
+# Program can be serialized/deserialized
+json_str = program.to_json()
+restored_program = Program.from_json(json_str)
 
-    print(f"Created {len(nano_ast.nodes)} nanoDSL nodes\n")
+# Create interpreter once, reuse with different environments
+interpreter = PythonASTInterpreter(restored_program)
 
-    # Serialize to JSON
-    json_str = nano_ast.to_json()
-    print("nanoDSL AST as JSON:")
-    print(json_str)
-    print()
-
-    # Deserialize and evaluate
-    restored_ast = AST.from_json(json_str)
-    env = {"a": 3, "b": 7}
-    interpreter = PythonASTInterpreter(restored_ast, env)
-    result = interpreter.run()
-
-    print(f"Environment: {env}")
-    print(f"Result: {result}")
-    print(f"Expected: {eval(python_code, env)}")
-
-
-if __name__ == "__main__":
-    main()
+# Run with different variable bindings
+result1 = interpreter.run({"a": 3, "b": 7})    # result1 = 20
+result2 = interpreter.run({"a": 10, "b": 5})   # result2 = 30

@@ -5,11 +5,11 @@ Calculator DSL Example
 A simple mathematical expression evaluator demonstrating:
 - Node definition
 - The Interpreter base class
-- Reference-based ASTs with shared subexpressions
+- Both simple nested trees and graph-based programs with shared subexpressions
 """
 
 from typing import Literal
-from typedsl import Node, Ref, AST, Interpreter
+from typedsl import Node, Ref, Program, Interpreter
 
 
 # ============================================================================
@@ -40,11 +40,10 @@ class BinOp(Node[float], tag="calc_binop"):
 # ============================================================================
 
 class Calculator(Interpreter[dict[str, float], float]):
-    """
-    Evaluates calculator expressions.
+    """Evaluates calculator expressions.
 
-    Context: dict[str, float] - variable environment
-    Returns: float - result of evaluation
+    The interpreter is reusable - create once with a program,
+    then run multiple times with different variable contexts.
     """
 
     def eval(self, node: Node[float]) -> float:
@@ -78,57 +77,61 @@ class Calculator(Interpreter[dict[str, float], float]):
 
 
 # ============================================================================
-# Example: Shared Subexpressions
+# Example 1: Simple nested tree
 # ============================================================================
 
-def main():
-    """
-    Build and evaluate: (x + y) * (x + y)
+# Build a simple nested expression: (3 + 4) * 2
+# No Program wrapper needed - pass node directly to interpreter
+simple_expr = BinOp(
+    op="*",
+    left=BinOp(op="+", left=Const(value=3.0), right=Const(value=4.0)),
+    right=Const(value=2.0),
+)
 
-    The subexpression (x + y) is shared - computed once, reused twice.
-    """
-
-    # Build AST with explicit node IDs
-    ast = AST(
-        root="result",
-        nodes={
-            "x": Const(value=3.0),
-            "y": Const(value=4.0),
-            "sum": BinOp(op="+", left=Ref(id="x"), right=Ref(id="y")),
-            "result": BinOp(op="*", left=Ref(id="sum"), right=Ref(id="sum")),
-        }
-    )
-
-    # Serialize to JSON
-    print("AST as JSON:")
-    print(ast.to_json())
-    print()
-
-    # Evaluate
-    calculator = Calculator(ast, {})
-    result = calculator.run()
-
-    print(f"Expression: (x + y) * (x + y) where x=3, y=4")
-    print(f"Result: {result}")
-    print(f"Expected: (3 + 4) * (3 + 4) = 49")
-    print()
-
-    # With variables
-    ast2 = AST(
-        root="expr",
-        nodes={
-            "a": Var(name="a"),
-            "b": Const(value=2.0),
-            "expr": BinOp(op="*", left=Ref(id="a"), right=Ref(id="b")),
-        }
-    )
-
-    calculator2 = Calculator(ast2, {"a": 5.0})
-    result2 = calculator2.run()
-
-    print(f"Expression: a * 2 where a=5")
-    print(f"Result: {result2}")
+calculator = Calculator(simple_expr)
+result = calculator.run({})  # result = 14.0
 
 
-if __name__ == "__main__":
-    main()
+# ============================================================================
+# Example 2: Graph with shared subexpressions
+# ============================================================================
+
+# Build program with explicit node IDs: (x + y) * (x + y)
+# The subexpression (x + y) is shared - referenced twice
+shared_program = Program(
+    root=Ref(id="result"),
+    nodes={
+        "x": Const(value=3.0),
+        "y": Const(value=4.0),
+        "sum": BinOp(op="+", left=Ref(id="x"), right=Ref(id="y")),
+        "result": BinOp(op="*", left=Ref(id="sum"), right=Ref(id="sum")),
+    },
+)
+
+calculator = Calculator(shared_program)
+result = calculator.run({})  # result = 49.0
+
+# Program can be serialized/deserialized
+json_str = shared_program.to_json()
+restored = Program.from_json(json_str)
+
+
+# ============================================================================
+# Example 3: Reusable interpreter with variables
+# ============================================================================
+
+# Build program with variables: a * 2
+var_program = Program(
+    root=Ref(id="expr"),
+    nodes={
+        "a": Var(name="a"),
+        "two": Const(value=2.0),
+        "expr": BinOp(op="*", left=Ref(id="a"), right=Ref(id="two")),
+    },
+)
+
+# Create interpreter once, run multiple times with different contexts
+calculator = Calculator(var_program)
+result1 = calculator.run({"a": 5.0})    # result1 = 10.0
+result2 = calculator.run({"a": 10.0})   # result2 = 20.0
+result3 = calculator.run({"a": 100.0})  # result3 = 200.0

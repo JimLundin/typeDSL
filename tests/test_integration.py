@@ -3,10 +3,10 @@
 import pytest
 
 from typedsl import (
-    AST,
     Child,
     Node,
     NodeRef,
+    Program,
     Ref,
     all_schemas,
     from_json,
@@ -90,11 +90,11 @@ class TestCompleteExpressionTreeWorkflow:
         assert restored == expr
 
 
-class TestASTWithReferencesWorkflow:
-    """Test complete workflow using AST with references."""
+class TestProgramWithReferencesWorkflow:
+    """Test complete workflow using Program with references."""
 
-    def test_build_ast_with_shared_nodes(self) -> None:
-        """Test building AST with shared nodes via references."""
+    def test_build_program_with_shared_nodes(self) -> None:
+        """Test building Program with shared nodes via references."""
 
         # Step 1: Define nodes that use references
         class Value(Node[float], tag="value_ast_workflow"):
@@ -104,10 +104,10 @@ class TestASTWithReferencesWorkflow:
             left: Ref[Node[float]]
             right: Ref[Node[float]]
 
-        # Step 2: Build AST with shared node
+        # Step 2: Build Program with shared node
         # Expression: x + x (where x is shared)
-        ast = AST(
-            root="result",
+        prog = Program(
+            root=Ref(id="result"),
             nodes={
                 "x": Value(num=5.0),
                 "result": Compute(left=Ref(id="x"), right=Ref(id="x")),
@@ -115,28 +115,29 @@ class TestASTWithReferencesWorkflow:
         )
 
         # Step 3: Verify reference resolution
-        x_node = ast.nodes["x"]
-        result_node = ast.nodes["result"]
+        x_node = prog.nodes["x"]
+        result_node = prog.nodes["result"]
 
         assert isinstance(result_node, Compute)
-        resolved_left = ast.resolve(result_node.left)
-        resolved_right = ast.resolve(result_node.right)
+        resolved_left = prog.resolve(result_node.left)
+        resolved_right = prog.resolve(result_node.right)
 
         # Both should be the same object
         assert resolved_left is x_node
         assert resolved_right is x_node
 
-        # Step 4: Serialize AST
-        json_str = ast.to_json()
+        # Step 4: Serialize Program
+        json_str = prog.to_json()
 
-        # Step 5: Deserialize AST
-        restored_ast = AST.from_json(json_str)
+        # Step 5: Deserialize Program
+        restored_prog = Program.from_json(json_str)
 
         # Step 6: Verify structure preserved
-        assert restored_ast.root == ast.root
-        assert len(restored_ast.nodes) == len(ast.nodes)
-        assert restored_ast.nodes["x"] == ast.nodes["x"]
-        assert restored_ast.nodes["result"] == ast.nodes["result"]
+        assert isinstance(restored_prog.root, Ref)
+        assert restored_prog.root.id == prog.root.id
+        assert len(restored_prog.nodes) == len(prog.nodes)
+        assert restored_prog.nodes["x"] == prog.nodes["x"]
+        assert restored_prog.nodes["result"] == prog.nodes["result"]
 
     def test_complex_dataflow_graph(self) -> None:
         """Test complex dataflow with multiple shared nodes."""
@@ -155,8 +156,8 @@ class TestASTWithReferencesWorkflow:
 
         # Build complex graph:
         # input -> (t1, t2, t3) -> (j1, j2) -> final
-        ast = AST(
-            root="final",
+        prog = Program(
+            root=Ref(id="final"),
             nodes={
                 "input": Input(source="data.txt"),
                 "t1": Transform(func="upper", input=Ref(id="input")),
@@ -169,14 +170,15 @@ class TestASTWithReferencesWorkflow:
         )
 
         # Verify graph structure
-        assert len(ast.nodes) == 7
+        assert len(prog.nodes) == 7
 
         # Serialize and deserialize
-        json_str = ast.to_json()
-        restored = AST.from_json(json_str)
+        json_str = prog.to_json()
+        restored = Program.from_json(json_str)
 
         # Verify restoration
-        assert restored.root == "final"
+        assert isinstance(restored.root, Ref)
+        assert restored.root.id == "final"
         assert len(restored.nodes) == 7
 
         # Verify relationships preserved
@@ -364,9 +366,9 @@ class TestEndToEndUserScenarios:
             right: Ref[Node[str]]
             on: str
 
-        # Build query AST
-        ast = AST(
-            root="result",
+        # Build query Program
+        prog = Program(
+            root=Ref(id="result"),
             nodes={
                 "users": Table(name="users"),
                 "orders": Table(name="orders"),
@@ -384,11 +386,12 @@ class TestEndToEndUserScenarios:
         )
 
         # Serialize and deserialize
-        json_str = ast.to_json()
-        restored = AST.from_json(json_str)
+        json_str = prog.to_json()
+        restored = Program.from_json(json_str)
 
         # Verify query structure preserved
-        assert restored.root == "result"
+        assert isinstance(restored.root, Ref)
+        assert restored.root.id == "result"
         result_node = restored.nodes["result"]
         assert isinstance(result_node, Select)
         assert result_node.columns == ["name", "order_id", "total"]
@@ -418,8 +421,8 @@ class TestEndToEndUserScenarios:
             test_data: Ref[Node[str]]
 
         # Build pipeline
-        ast = AST(
-            root="evaluation",
+        prog = Program(
+            root=Ref(id="evaluation"),
             nodes={
                 "raw_data": DataSource(path="data.csv"),
                 "preprocessed": Preprocess(
@@ -438,8 +441,8 @@ class TestEndToEndUserScenarios:
         )
 
         # Round-trip through JSON
-        json_str = ast.to_json()
-        restored = AST.from_json(json_str)
+        json_str = prog.to_json()
+        restored = Program.from_json(json_str)
 
         # Verify pipeline intact
         assert len(restored.nodes) == 7
@@ -466,7 +469,7 @@ class TestTypeAliasesIntegration:
         inline_node = FlexNode(input=Value(num=42))
         assert isinstance(inline_node.input, Node)
 
-        # Test with reference (in AST context)
+        # Test with reference (in Program context)
         ref_node = FlexNode(input=Ref[Node[int]](id="some_value"))
         assert isinstance(ref_node.input, Ref)
 
@@ -508,15 +511,15 @@ class TestErrorRecovery:
             from_json(json_str)
 
     def test_resolve_nonexistent_reference(self) -> None:
-        """Test resolving reference that doesn't exist in AST."""
+        """Test resolving reference that doesn't exist in Program."""
 
         class Dummy(Node[int], tag="dummy_err"):
             value: int
 
-        ast = AST(root="node1", nodes={"node1": Dummy(value=1)})
+        prog = Program(root=Ref(id="node1"), nodes={"node1": Dummy(value=1)})
 
         # Try to resolve non-existent reference
         ref = Ref[Node[int]](id="nonexistent")
 
         with pytest.raises(KeyError):
-            ast.resolve(ref)
+            prog.resolve(ref)

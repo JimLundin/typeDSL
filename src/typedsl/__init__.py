@@ -6,8 +6,8 @@ from typedsl.adapters import (
     JSONAdapter,
 )
 from typedsl.ast import (
-    AST,
     Interpreter,
+    Program,
 )
 from typedsl.nodes import (
     Child,
@@ -64,7 +64,6 @@ from typedsl.types import (
 )
 
 __all__ = [
-    "AST",
     "BoolType",
     "BytesType",
     "Child",
@@ -92,6 +91,7 @@ __all__ = [
     "NodeSchema",
     "NodeType",
     "NoneType",
+    "Program",
     "Ref",
     "RefType",
     "SequenceType",
