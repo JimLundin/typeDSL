@@ -29,6 +29,23 @@ class Program:
     root: Node[Any] | Ref[Node[Any]]
     nodes: Mapping[str, Node[Any]] = field(default_factory=dict)
 
+    def get_root_node(self) -> Node[Any]:
+        """Get the root node of the program.
+
+        Returns the actual root node, resolving the reference if necessary.
+        This is the entry point for program evaluation.
+
+        Returns:
+            The root node to begin evaluation from
+
+        Raises:
+            KeyError: If root is a Ref and the ID is not found in nodes
+
+        """
+        if isinstance(self.root, Ref):
+            return self.resolve(self.root)
+        return self.root
+
     def resolve[X](self, ref: Ref[X]) -> X:
         """Resolve a reference to its node.
 
@@ -133,14 +150,7 @@ class Interpreter[Ctx, R](ABC):
 
         """
         self.ctx = ctx
-
-        # Resolve root if it's a reference, otherwise use it directly
-        if isinstance(self.program.root, Ref):
-            root = self.program.nodes[self.program.root.id]
-        else:
-            root = self.program.root
-
-        return self.eval(root)
+        return self.eval(self.program.get_root_node())
 
     def resolve[X](self, ref: Ref[X]) -> X:
         """Resolve a reference to its target node.
