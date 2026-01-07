@@ -751,6 +751,69 @@ class TestInterpreterBasics:
 
         assert result == 3
 
+    def test_finalize_hook_default(self) -> None:
+        """Test that finalize hook defaults to pass-through."""
+
+        class Num(Node[int], tag="num_finalize_default"):
+            value: int
+
+        class Calculator(Interpreter[None, int]):
+            def eval(self, node: Node[Any]) -> int:
+                match node:
+                    case Num(value=v):
+                        return v
+                    case _:
+                        raise NotImplementedError
+
+        prog = Program(root=Num(value=42))
+        result = Calculator(prog).run(None)
+
+        assert result == 42
+
+    def test_finalize_hook_override(self) -> None:
+        """Test that finalize hook can transform the result."""
+
+        class Num(Node[int], tag="num_finalize_override"):
+            value: int
+
+        class DoubleCalculator(Interpreter[None, int]):
+            def eval(self, node: Node[Any]) -> int:
+                match node:
+                    case Num(value=v):
+                        return v
+                    case _:
+                        raise NotImplementedError
+
+            def finalize(self, result: int) -> int:
+                return result * 2
+
+        prog = Program(root=Num(value=21))
+        result = DoubleCalculator(prog).run(None)
+
+        assert result == 42
+
+    def test_finalize_hook_with_context(self) -> None:
+        """Test finalize hook can access context."""
+
+        class Num(Node[int], tag="num_finalize_ctx"):
+            value: int
+
+        class ContextAwareCalculator(Interpreter[dict[str, int], int]):
+            def eval(self, node: Node[Any]) -> int:
+                match node:
+                    case Num(value=v):
+                        return v
+                    case _:
+                        raise NotImplementedError
+
+            def finalize(self, result: int) -> int:
+                return result + self.ctx.get("bonus", 0)
+
+        prog = Program(root=Num(value=40))
+        result = ContextAwareCalculator(prog).run({"bonus": 2})
+
+        assert result == 42
+
 
 class TestInterpreterResolve:
     """Test Interpreter.resolve() functionality."""

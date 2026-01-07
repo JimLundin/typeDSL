@@ -125,6 +125,9 @@ class Interpreter[Ctx, R](ABC):
         - Complex: Interpreter(Program(root=Ref(id="expr"), nodes={...}))
 
     Interpreters are reusable across multiple runs with different contexts.
+
+    For two-phase evaluation (e.g., lazy execution models), override `finalize()`
+    to transform the evaluation result before returning from `run()`.
     """
 
     def __init__(self, program: Node[Any] | Program) -> None:
@@ -146,11 +149,28 @@ class Interpreter[Ctx, R](ABC):
             ctx: The evaluation context (variables, environment, etc.)
 
         Returns:
-            The result of evaluating the program
+            The result of evaluating the program, after finalization
 
         """
         self.ctx = ctx
-        return self.eval(self.program.get_root_node())
+        result = self.eval(self.program.get_root_node())
+        return self.finalize(result)
+
+    def finalize(self, result: R) -> R:
+        """Post-process evaluation result before returning from run().
+
+        Override this method to transform the raw evaluation result.
+        Useful for two-phase evaluation models where eval() produces an
+        intermediate representation that needs final processing.
+
+        Args:
+            result: The raw result from eval()
+
+        Returns:
+            The final result to return from run()
+
+        """
+        return result
 
     def resolve[X](self, ref: Ref[X]) -> X:
         """Resolve a reference to its target node.
