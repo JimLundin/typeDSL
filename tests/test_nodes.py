@@ -290,3 +290,91 @@ class TestNodeEquality:
         # Should be able to use as dict key
         node_dict = {node1: "first"}
         assert node_dict[node2] == "first"
+
+
+class TestNodeSubclassing:
+    """Test hierarchical Node subclassing."""
+
+    def test_intermediate_base_class(self) -> None:
+        """Test that nodes can inherit from intermediate base classes."""
+
+        class Expr(Node[float], tag="subclass_expr"):
+            pass
+
+        class Literal(Expr, tag="subclass_literal"):
+            value: float
+
+        node = Literal(value=3.14)
+        assert node.value == 3.14
+        assert isinstance(node, Literal)
+        assert isinstance(node, Expr)
+        assert isinstance(node, Node)
+
+    def test_field_inheritance(self) -> None:
+        """Test that fields are inherited from parent node classes."""
+
+        class BinaryExpr(Node[float], tag="subclass_binary"):
+            left: Node[float]
+            right: Node[float]
+
+        class AddExpr(BinaryExpr, tag="subclass_add"):
+            pass
+
+        class MulExpr(BinaryExpr, tag="subclass_mul"):
+            pass
+
+        class NumLiteral(Node[float], tag="subclass_num"):
+            value: float
+
+        # Both AddExpr and MulExpr inherit left/right fields
+        add = AddExpr(left=NumLiteral(value=1.0), right=NumLiteral(value=2.0))
+        mul = MulExpr(left=NumLiteral(value=3.0), right=NumLiteral(value=4.0))
+
+        assert add.left.value == 1.0
+        assert add.right.value == 2.0
+        assert mul.left.value == 3.0
+        assert mul.right.value == 4.0
+
+    def test_multi_level_inheritance(self) -> None:
+        """Test inheritance across multiple levels."""
+
+        class BaseExpr(Node[int], tag="multi_base"):
+            pass
+
+        class UnaryExpr(BaseExpr, tag="multi_unary"):
+            operand: Node[int]
+
+        class NegateExpr(UnaryExpr, tag="multi_negate"):
+            pass
+
+        class Val(BaseExpr, tag="multi_val"):
+            value: int
+
+        neg = NegateExpr(operand=Val(value=42))
+
+        assert neg.operand.value == 42
+        assert isinstance(neg, NegateExpr)
+        assert isinstance(neg, UnaryExpr)
+        assert isinstance(neg, BaseExpr)
+        assert isinstance(neg, Node)
+
+    def test_each_subclass_gets_own_tag(self) -> None:
+        """Test that each class in hierarchy gets its own unique tag."""
+
+        class Parent(Node[str], tag="tag_parent"):
+            pass
+
+        class Child(Parent, tag="tag_child"):
+            name: str
+
+        class Grandchild(Child, tag="tag_grandchild"):
+            age: int
+
+        assert Parent.tag == "tag_parent"
+        assert Child.tag == "tag_child"
+        assert Grandchild.tag == "tag_grandchild"
+
+        # All registered separately
+        assert Node.registry["tag_parent"] is Parent
+        assert Node.registry["tag_child"] is Child
+        assert Node.registry["tag_grandchild"] is Grandchild
