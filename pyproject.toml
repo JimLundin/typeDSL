@@ -42,8 +42,11 @@ Documentation = "https://github.com/JimLundin/typeDSL#readme"
 requires = ["uv_build>=0.8.17,<0.9.0"]
 build-backend = "uv_build"
 
+[project.optional-dependencies]
+examples = ["polars>=1.0.0"]
+
 [dependency-groups]
-dev = ["mypy>=1.19.0", "pyright>=1.1.407", "pytest>=9.0.1", "ruff>=0.14.7"]
+dev = ["mypy>=1.19.0", "pyright>=1.1.407", "pytest>=9.0.1", "ruff>=0.14.7", "polars>=1.0.0"]
 
 [tool.mypy]
 strict = true
@@ -71,6 +74,9 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Tests: allow asserts, magic values, and code-like comments (explanatory examples)
 "tests/**" = ["S101", "PLR2004", "ERA001"]
+# Examples: allow print statements, namespace packages, and relaxed docstring rules
+# Also allow complexity for interpreter eval methods that dispatch on many node types
+"examples/**" = ["T201", "INP001", "D205", "D212", "D400", "D415", "N801", "FBT001", "COM812", "PYI041", "PLR2004", "C901", "PLR0911", "PLR0912"]
 # Type manipulation code legitimately requires Any for runtime type introspection
 "src/typedsl/schema.py" = [
     "ANN401",   # Any required for extract_type(py_type: Any)

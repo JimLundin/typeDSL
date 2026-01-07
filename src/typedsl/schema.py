@@ -140,11 +140,16 @@ def extract_type(py_type: Any) -> TypeDef:
             raise ValueError(msg)
         return typedef_cls(*(extract_type(arg) for arg in args))
 
-    # Tuple (heterogeneous, variable-length elements)
+    # Tuple handling
     if origin is tuple:
         if not args:
             msg = "tuple type must have element types"
             raise ValueError(msg)
+        # Variable-length tuple: tuple[T, ...] -> SequenceType(element=T)
+        # Note: 2 is semantic (element_type, ellipsis), not a magic number
+        if len(args) == 2 and args[1] is ...:  # noqa: PLR2004
+            return SequenceType(element=extract_type(args[0]))
+        # Fixed-length tuple: tuple[T1, T2, ...] -> TupleType(elements=(T1, T2, ...))
         return TupleType(elements=tuple(extract_type(arg) for arg in args))
 
     # Literal values
