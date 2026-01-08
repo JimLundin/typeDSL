@@ -52,7 +52,7 @@ class BinOp(Node[float], tag="binop"):
 ```python
 from typedsl import Interpreter
 
-class Calculator(Interpreter[dict[str, float], float]):
+class Calculator(Interpreter[dict[str, float], float, float]):
     def eval(self, node: Node[float]) -> float:
         match node:
             case BinOp(op="+", left=l, right=r):
