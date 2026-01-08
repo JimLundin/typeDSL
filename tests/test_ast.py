@@ -1,6 +1,7 @@
 """Tests for typedsl.ast module."""
 
 import json
+from dataclasses import dataclass
 from typing import Any
 
 import pytest
@@ -1138,7 +1139,8 @@ class TestInterpreterOnResultHook:
         class ValidatingEvaluator(Interpreter[None, int]):
             def on_result(self, result: int) -> int:
                 if result < 0:
-                    raise ValueError("Result must be non-negative")
+                    msg = "Result must be non-negative"
+                    raise ValueError(msg)
                 return result
 
             def eval(self, node: Node[Any]) -> int:
@@ -1275,7 +1277,8 @@ class TestInterpreterOnResultHook:
                             return left_val + right_val
                         if op == "*":
                             return left_val * right_val
-                        raise ValueError(f"Unknown op: {op}")
+                        msg = f"Unknown op: {op}"
+                        raise ValueError(msg)
                     case _:
                         raise NotImplementedError
 
@@ -1287,9 +1290,8 @@ class TestInterpreterOnResultHook:
 
     def test_on_result_wrapping_type(self) -> None:
         """on_result can wrap the result in a custom container type."""
-        from dataclasses import dataclass as dc
 
-        @dc
+        @dataclass
         class EvalResult:
             value: int
             node_count: int
@@ -1320,7 +1322,8 @@ class TestInterpreterOnResultHook:
                     case _:
                         raise NotImplementedError
 
-        expr = Add(left=Const(value=1), right=Add(left=Const(value=2), right=Const(value=3)))
+        inner = Add(left=Const(value=2), right=Const(value=3))
+        expr = Add(left=Const(value=1), right=inner)
         result = WrappingEvaluator(expr).run(None)
 
         assert isinstance(result, EvalResult)

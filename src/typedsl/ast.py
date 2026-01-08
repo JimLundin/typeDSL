@@ -166,7 +166,7 @@ class Interpreter[Ctx, E, R = E](ABC):
         return self.on_result(result)
 
     def on_result(self, result: E) -> R:
-        """Hook called with the evaluation result before returning from run().
+        """Transform the evaluation result before returning from run().
 
         Override to transform the eval result (type E) to the final result (type R).
         When E and R are the same type, the default implementation returns unchanged.
@@ -190,7 +190,7 @@ class Interpreter[Ctx, E, R = E](ABC):
                 def eval(self, node): ...
 
         """
-        return cast(R, result)
+        return cast("R", result)
 
     def resolve[X](self, child: Node[X] | Ref[Node[X]]) -> Node[X]:
         """Resolve a child to its node, handling both inline nodes and references.

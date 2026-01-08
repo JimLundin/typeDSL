@@ -70,6 +70,8 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Tests: allow asserts, magic values, and code-like comments (explanatory examples)
 "tests/**" = ["S101", "PLR2004", "ERA001"]
+# Examples: concise, educational code - allow missing docstrings, asserts, Any, etc.
+"examples/**" = ["S101", "PLR2004", "D1", "ANN401", "INP001"]
 # Type manipulation code legitimately requires Any for runtime type introspection
 "src/typedsl/schema.py" = [
     "ANN401",   # Any required for extract_type(py_type: Any)
