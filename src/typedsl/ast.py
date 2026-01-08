@@ -108,7 +108,7 @@ class Program:
         return cls.from_dict(json.loads(s))
 
 
-class Interpreter[Ctx, E, R](ABC):
+class Interpreter[Ctx, E, R = E](ABC):
     """Base class for program interpreters.
 
     Provides program access, context management, and reference resolution.
@@ -117,12 +117,12 @@ class Interpreter[Ctx, E, R](ABC):
     Type Parameters:
         Ctx: Type of evaluation context (use None if no context needed)
         E: Return type of eval() - the intermediate evaluation result
-        R: Return type of run() - the final result after on_result transformation
+        R: Return type of run() - defaults to E if not specified
 
-    When no transformation is needed, use the same type for E and R:
-        class Calculator(Interpreter[dict[str, float], float, float]): ...
+    Simple usage (R defaults to E):
+        class Calculator(Interpreter[dict[str, float], float]): ...
 
-    When transforming the result, use different types:
+    With result transformation (explicit R):
         class StringifyingCalc(Interpreter[None, float, str]):
             def on_result(self, result: float) -> str:
                 return f"Result: {result}"
@@ -135,7 +135,7 @@ class Interpreter[Ctx, E, R](ABC):
 
     Hooks:
         on_result: Override to transform the evaluation result (E) to the final
-                   result (R). Required when E and R are different types.
+                   result (R). Only needed when E and R are different types.
     """
 
     def __init__(self, program: Node[Any] | Program) -> None:
@@ -179,7 +179,7 @@ class Interpreter[Ctx, E, R](ABC):
             The final result to return from run() (type R)
 
         Example (same type - no override needed):
-            class Calculator(Interpreter[None, float, float]):
+            class Calculator(Interpreter[None, float]):
                 def eval(self, node): ...
 
         Example (type transformation - override required):
@@ -213,7 +213,7 @@ class Interpreter[Ctx, E, R](ABC):
                 left: Child[float]  # Can be inline or ref
                 right: Child[float]
 
-            class Calculator(Interpreter[None, float, float]):
+            class Calculator(Interpreter[None, float]):
                 def eval(self, node):
                     match node:
                         case BinOp(left=l, right=r):

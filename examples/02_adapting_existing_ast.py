@@ -52,7 +52,7 @@ class PythonASTConverter:
         return node_id
 
 
-class PythonEval(Interpreter[dict[str, Any], Any, Any]):
+class PythonEval(Interpreter[dict[str, Any], Any]):
     def eval(self, node: Node[Any]) -> Any:
         match node:
             case Constant(value=v):

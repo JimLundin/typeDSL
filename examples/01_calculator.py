@@ -19,7 +19,7 @@ class BinOp(Node[float], tag="calc_binop"):
     right: Child[float]
 
 
-class Calculator(Interpreter[dict[str, float], float, float]):
+class Calculator(Interpreter[dict[str, float], float]):
     def eval(self, node: Node[float]) -> float:
         match node:
             case Const(value=v):

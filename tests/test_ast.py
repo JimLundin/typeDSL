@@ -698,7 +698,7 @@ class TestInterpreterBasics:
         class Const(Node[float], tag="const_interp_simple"):
             value: float
 
-        class Calculator(Interpreter[None, float, float]):
+        class Calculator(Interpreter[None, float]):
             def eval(self, node: Node[Any]) -> float:
                 match node:
                     case Const(value=v):
@@ -718,7 +718,7 @@ class TestInterpreterBasics:
         class Var(Node[float], tag="var_interp_ctx"):
             name: str
 
-        class Calculator(Interpreter[dict[str, float], float, float]):
+        class Calculator(Interpreter[dict[str, float], float]):
             def eval(self, node: Node[Any]) -> float:
                 match node:
                     case Var(name=n):
@@ -738,7 +738,7 @@ class TestInterpreterBasics:
         class Num(Node[int], tag="num_interp_ast_access"):
             value: int
 
-        class Inspector(Interpreter[None, int, int]):
+        class Inspector(Interpreter[None, int]):
             def eval(self, _node: Node[Any]) -> int:
                 # Access ast from within eval
                 return len(self.program.nodes)
@@ -764,7 +764,7 @@ class TestInterpreterResolve:
         class Wrapper(Node[int], tag="wrapper_interp_resolve"):
             inner: Ref[Node[int]]
 
-        class Evaluator(Interpreter[None, int, int]):
+        class Evaluator(Interpreter[None, int]):
             def eval(self, node: Node[Any]) -> int:
                 match node:
                     case Val(value=v):
@@ -796,7 +796,7 @@ class TestInterpreterResolve:
             left: Ref[Node[float]]
             right: Ref[Node[float]]
 
-        class Calculator(Interpreter[None, float, float]):
+        class Calculator(Interpreter[None, float]):
             def eval(self, node: Node[Any]) -> float:
                 match node:
                     case Const(value=v):
@@ -832,7 +832,7 @@ class TestInterpreterWithSharedNodes:
             left: Ref[Node[int]]
             right: Ref[Node[int]]
 
-        class CountingEvaluator(Interpreter[None, int, int]):
+        class CountingEvaluator(Interpreter[None, int]):
             def __init__(self, program: Node[Any] | Program) -> None:
                 super().__init__(program)
                 self.eval_count = 0
@@ -877,7 +877,7 @@ class TestInterpreterWithSharedNodes:
             left: Ref[Node[float]]
             right: Ref[Node[float]]
 
-        class Calculator(Interpreter[None, float, float]):
+        class Calculator(Interpreter[None, float]):
             def eval(self, node: Node[Any]) -> float:
                 match node:
                     case Const(value=v):
@@ -917,7 +917,7 @@ class TestInterpreterUserMemoization:
             left: Ref[Node[int]]
             right: Ref[Node[int]]
 
-        class MemoizingCalculator(Interpreter[None, int, int]):
+        class MemoizingCalculator(Interpreter[None, int]):
             def __init__(self, program: Node[Any] | Program) -> None:
                 super().__init__(program)
                 self._cache: dict[str, int] = {}
@@ -973,7 +973,7 @@ class TestInterpreterComplexExamples:
             left: Ref[Node[float]]
             right: Ref[Node[float]]
 
-        class ArithmeticEvaluator(Interpreter[dict[str, float], float, float]):
+        class ArithmeticEvaluator(Interpreter[dict[str, float], float]):
             def eval(self, node: Node[Any]) -> float:
                 match node:
                     case Const(value=v):
@@ -1020,7 +1020,7 @@ class TestInterpreterComplexExamples:
             left: Ref[Node[str]]
             right: Ref[Node[str]]
 
-        class StringInterpreter(Interpreter[None, str, str]):
+        class StringInterpreter(Interpreter[None, str]):
             def eval(self, node: Node[Any]) -> str:
                 match node:
                     case StrLiteral(value=v):
@@ -1054,7 +1054,7 @@ class TestInterpreterComplexExamples:
             left: Node[int] | Ref[Node[int]]
             right: Node[int] | Ref[Node[int]]
 
-        class MixedEvaluator(Interpreter[None, int, int]):
+        class MixedEvaluator(Interpreter[None, int]):
             def eval(self, node: Node[Any]) -> int:
                 match node:
                     case Const(value=v):
@@ -1098,7 +1098,7 @@ class TestInterpreterOnResultHook:
         class Const(Node[int], tag="const_hook_default"):
             value: int
 
-        class SimpleEvaluator(Interpreter[None, int, int]):
+        class SimpleEvaluator(Interpreter[None, int]):
             def eval(self, node: Node[Any]) -> int:
                 match node:
                     case Const(value=v):
@@ -1115,7 +1115,7 @@ class TestInterpreterOnResultHook:
         class Const(Node[float], tag="const_hook_transform"):
             value: float
 
-        class RoundingCalculator(Interpreter[None, float, float]):
+        class RoundingCalculator(Interpreter[None, float]):
             def on_result(self, result: float) -> float:
                 return round(result, 2)
 
@@ -1135,7 +1135,7 @@ class TestInterpreterOnResultHook:
         class Const(Node[int], tag="const_hook_validate"):
             value: int
 
-        class ValidatingEvaluator(Interpreter[None, int, int]):
+        class ValidatingEvaluator(Interpreter[None, int]):
             def on_result(self, result: int) -> int:
                 if result < 0:
                     raise ValueError("Result must be non-negative")
@@ -1162,7 +1162,7 @@ class TestInterpreterOnResultHook:
         class Const(Node[float], tag="const_hook_ctx"):
             value: float
 
-        class ContextAwareEvaluator(Interpreter[dict[str, float], float, float]):
+        class ContextAwareEvaluator(Interpreter[dict[str, float], float]):
             def on_result(self, result: float) -> float:
                 multiplier = self.ctx.get("multiplier", 1.0)
                 return result * multiplier
@@ -1188,7 +1188,7 @@ class TestInterpreterOnResultHook:
         class Const(Node[int], tag="const_hook_count"):
             value: int
 
-        class CountingEvaluator(Interpreter[None, int, int]):
+        class CountingEvaluator(Interpreter[None, int]):
             def __init__(self, program: Node[Any] | Program) -> None:
                 super().__init__(program)
                 self.hook_call_count = 0
@@ -1222,7 +1222,7 @@ class TestInterpreterOnResultHook:
             left: Node[int] | Ref[Node[int]]
             right: Node[int] | Ref[Node[int]]
 
-        class SummingEvaluator(Interpreter[None, int, int]):
+        class SummingEvaluator(Interpreter[None, int]):
             def on_result(self, result: int) -> int:
                 return result * 10  # Scale up the final result
 
