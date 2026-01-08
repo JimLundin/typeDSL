@@ -9,7 +9,7 @@ A simple mathematical expression evaluator demonstrating:
 """
 
 from typing import Literal
-from typedsl import Node, Ref, Program, Interpreter
+from typedsl import Child, Node, Ref, Program, Interpreter
 
 
 # ============================================================================
@@ -29,10 +29,14 @@ class Var(Node[float], tag="calc_var"):
 
 
 class BinOp(Node[float], tag="calc_binop"):
-    """Binary operation: +, -, *, /"""
+    """Binary operation: +, -, *, /
+
+    Uses Child[float] which accepts both inline nodes (Node[float])
+    and references (Ref[Node[float]]), enabling both tree and graph structures.
+    """
     op: Literal["+", "-", "*", "/"]
-    left: Ref[Node[float]]
-    right: Ref[Node[float]]
+    left: Child[float]
+    right: Child[float]
 
 
 # ============================================================================
@@ -58,6 +62,7 @@ class Calculator(Interpreter[dict[str, float], float]):
                 return self.ctx[n]
 
             case BinOp(op="+", left=l, right=r):
+                # resolve() handles both inline nodes and refs uniformly
                 return self.eval(self.resolve(l)) + self.eval(self.resolve(r))
 
             case BinOp(op="-", left=l, right=r):

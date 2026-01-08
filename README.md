@@ -125,21 +125,46 @@ class MySpecialNode(Node[int], tag="special"):
 
 ## Working with References
 
-For graph structures with shared nodes, use `Ref`:
+typeDSL supports three composition patterns for node children:
+
+### Pattern 1: Inline Nodes (`Node[T]`)
+
+Direct nesting creates tree structures:
 
 ```python
-from typedsl import Node, Ref, AST
+from typedsl import Node
 
 class Literal(Node[float]):
     value: float
 
 class Add(Node[float]):
-    left: Ref[Node[float]]   # Reference instead of inline node
+    left: Node[float]   # Inline node
+    right: Node[float]
+
+# Simple tree: 1.0 + 2.0
+tree = Add(
+    left=Literal(value=1.0),
+    right=Literal(value=2.0)
+)
+```
+
+### Pattern 2: References (`Ref[Node[T]]`)
+
+For graph structures with shared nodes:
+
+```python
+from typedsl import Node, Ref, Program
+
+class Literal(Node[float]):
+    value: float
+
+class Add(Node[float]):
+    left: Ref[Node[float]]   # Reference to a node
     right: Ref[Node[float]]
 
-# Build a graph where "x" is reused
-ast = AST(
-    root="result",
+# Graph where "x" is shared
+prog = Program(
+    root=Ref(id="result"),
     nodes={
         "x": Literal(value=5.0),
         "y": Literal(value=3.0),
@@ -149,13 +174,37 @@ ast = AST(
 )
 
 # Resolve references
-x_node = ast.resolve(Ref(id="x"))  # Returns Literal(value=5.0)
-
-# Serialize entire AST
-json_str = ast.to_json()
+x_node = prog.resolve(Ref(id="x"))  # Returns Literal(value=5.0)
 ```
 
-Use `Ref[Node[T]]` when you need:
+### Pattern 3: Flexible (`Child[T]`)
+
+Use `Child[T]` to accept both inline nodes and references:
+
+```python
+from typedsl import Child, Node, Ref, Program
+
+class Literal(Node[float]):
+    value: float
+
+class Add(Node[float]):
+    left: Child[float]   # Accepts Node[float] OR Ref[Node[float]]
+    right: Child[float]
+
+# Works as a simple tree
+tree = Add(left=Literal(value=1.0), right=Literal(value=2.0))
+
+# Also works with references in a Program
+prog = Program(
+    root=Ref(id="result"),
+    nodes={
+        "x": Literal(value=5.0),
+        "result": Add(left=Ref(id="x"), right=Literal(value=3.0)),  # Mixed!
+    }
+)
+```
+
+Use references when you need:
 - Shared subexpressions (multiple nodes reference the same child)
 - Cyclic graphs
 - Flat storage with explicit IDs
@@ -234,10 +283,10 @@ node = from_dict(user_input)
 ## Complete Example: Expression Evaluator
 
 ```python
-from typedsl import Node, Interpreter
+from typedsl import Child, Node, Interpreter, Program, Ref
 from typing import Literal
 
-# Define expression nodes
+# Define expression nodes using Child[T] for flexibility
 class Const(Node[float]):
     value: float
 
@@ -246,28 +295,14 @@ class Var(Node[float]):
 
 class BinOp(Node[float]):
     op: Literal["+", "-", "*", "/"]
-    left: Node[float]
-    right: Node[float]
+    left: Child[float]   # Accepts inline nodes or references
+    right: Child[float]
 
 class UnaryOp(Node[float]):
     op: Literal["-", "abs"]
-    operand: Node[float]
+    operand: Child[float]
 
-# Build expression: abs(x + 2) * 3
-expr = BinOp(
-    op="*",
-    left=UnaryOp(
-        op="abs",
-        operand=BinOp(
-            op="+",
-            left=Var(name="x"),
-            right=Const(value=2.0)
-        )
-    ),
-    right=Const(value=3.0)
-)
-
-# Implement interpreter
+# Implement interpreter using pattern matching
 class Evaluator(Interpreter[dict[str, float], float]):
     def eval(self, node: Node[float]) -> float:
         match node:
@@ -276,23 +311,60 @@ class Evaluator(Interpreter[dict[str, float], float]):
             case Var(name=n):
                 return self.ctx[n]
             case BinOp(op="+", left=l, right=r):
-                return self.eval(l) + self.eval(r)
+                # resolve() handles both Node and Ref uniformly
+                return self.eval(self.resolve(l)) + self.eval(self.resolve(r))
             case BinOp(op="-", left=l, right=r):
-                return self.eval(l) - self.eval(r)
+                return self.eval(self.resolve(l)) - self.eval(self.resolve(r))
             case BinOp(op="*", left=l, right=r):
-                return self.eval(l) * self.eval(r)
+                return self.eval(self.resolve(l)) * self.eval(self.resolve(r))
             case BinOp(op="/", left=l, right=r):
-                return self.eval(l) / self.eval(r)
+                return self.eval(self.resolve(l)) / self.eval(self.resolve(r))
             case UnaryOp(op="-", operand=o):
-                return -self.eval(o)
+                return -self.eval(self.resolve(o))
             case UnaryOp(op="abs", operand=o):
-                return abs(self.eval(o))
+                return abs(self.eval(self.resolve(o)))
+            case _:
+                raise NotImplementedError(f"Unknown node: {type(node)}")
 
-# Evaluate
-evaluator = Evaluator(None, {"x": -5.0})
-result = evaluator.eval(expr)
+# Example 1: Simple tree (inline nodes)
+expr = BinOp(
+    op="*",
+    left=UnaryOp(
+        op="abs",
+        operand=BinOp(op="+", left=Var(name="x"), right=Const(value=2.0))
+    ),
+    right=Const(value=3.0)
+)
+evaluator = Evaluator(expr)
+result = evaluator.run({"x": -5.0})
 print(result)  # 9.0 = abs(-5 + 2) * 3
+
+# Example 2: Graph with shared nodes (using references)
+prog = Program(
+    root=Ref(id="result"),
+    nodes={
+        "x": Var(name="x"),
+        "sum": BinOp(op="+", left=Ref(id="x"), right=Ref(id="x")),  # x + x
+        "result": BinOp(op="*", left=Ref(id="sum"), right=Const(value=2.0)),
+    }
+)
+evaluator = Evaluator(prog)
+result = evaluator.run({"x": 5.0})
+print(result)  # 20.0 = (5 + 5) * 2
 ```
+
+### Interpreter Type Notes
+
+The `Interpreter[Ctx, R]` base class uses `Node[Any]` in its abstract `eval` method because Python's type system cannot express the relationship between a node's type parameter `T` and the return type `R`.
+
+For better type safety in your implementation, you can narrow the signature:
+
+```python
+def eval(self, node: Node[float]) -> float:  # More specific than Node[Any]
+    ...
+```
+
+The `resolve()` method accepts `Child[T]` (union of `Node[T] | Ref[Node[T]]`) and uniformly returns the node - either directly if inline, or by resolving the reference. This lets you handle both composition patterns with the same code.
 
 ## Learning typeDSL
 
@@ -341,8 +413,17 @@ See [examples/README.md](examples/README.md) for usage instructions and key patt
 |-------|-------------|
 | `Node[T]` | Base class for AST nodes producing type T |
 | `Ref[X]` | Reference to X by ID |
-| `AST` | Container for flat AST with reference resolution |
+| `Program` | Container for AST with reference resolution |
+| `Interpreter[Ctx, R]` | Base class for interpreters with context `Ctx` and return type `R` |
 | `TypeDef` | Base class for type definitions |
+
+### Interpreter Methods
+
+| Method | Description |
+|--------|-------------|
+| `run(ctx: Ctx) -> R` | Execute the program with given context |
+| `eval(node: Node[Any]) -> R` | Abstract: evaluate a node (implement with pattern matching) |
+| `resolve(child: Child[X]) -> Node[X]` | Resolve child to node (handles both inline and refs) |
 
 ### Type Aliases
 
