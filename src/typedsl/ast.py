@@ -124,7 +124,7 @@ class Interpreter[Ctx, E, R = E](ABC):
 
     With result transformation (explicit R):
         class StringifyingCalc(Interpreter[None, float, str]):
-            def on_result(self, result: float) -> str:
+            def finalize(self, result: float) -> str:
                 return f"Result: {result}"
 
     The interpreter can accept either a simple nested node tree or a full Program:
@@ -134,8 +134,8 @@ class Interpreter[Ctx, E, R = E](ABC):
     Interpreters are reusable across multiple runs with different contexts.
 
     Hooks:
-        on_result: Override to transform the evaluation result (E) to the final
-                   result (R). Only needed when E and R are different types.
+        finalize: Override to transform the evaluation result (E) to the final
+                  result (R). Only needed when E and R are different types.
     """
 
     def __init__(self, program: Node[Any] | Program) -> None:
@@ -158,15 +158,15 @@ class Interpreter[Ctx, E, R = E](ABC):
 
         Returns:
             The result of evaluating the program, after transformation
-            by on_result()
+            by finalize()
 
         """
         self.ctx = ctx
         result = self.eval(self.program.get_root_node())
-        return self.on_result(result)
+        return self.finalize(result)
 
-    def on_result(self, result: E) -> R:
-        """Transform the evaluation result before returning from run().
+    def finalize(self, result: E) -> R:
+        """Finalize the evaluation result before returning from run().
 
         Override to transform the eval result (type E) to the final result (type R).
         When E and R are the same type, the default implementation returns unchanged.
@@ -184,7 +184,7 @@ class Interpreter[Ctx, E, R = E](ABC):
 
         Example (type transformation - override required):
             class StringifyingCalc(Interpreter[None, float, str]):
-                def on_result(self, result: float) -> str:
+                def finalize(self, result: float) -> str:
                     return f"Result: {result:.2f}"
 
                 def eval(self, node): ...

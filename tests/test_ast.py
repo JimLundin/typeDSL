@@ -1090,11 +1090,11 @@ class TestInterpreterComplexExamples:
         assert result == 15
 
 
-class TestInterpreterOnResultHook:
-    """Tests for the on_result hook."""
+class TestInterpreterFinalizeHook:
+    """Tests for the finalize hook."""
 
-    def test_default_on_result_returns_unchanged(self) -> None:
-        """Default on_result returns the result unchanged."""
+    def test_default_finalize_returns_unchanged(self) -> None:
+        """Default finalize returns the result unchanged."""
 
         class Const(Node[int], tag="const_hook_default"):
             value: int
@@ -1110,14 +1110,14 @@ class TestInterpreterOnResultHook:
         result = SimpleEvaluator(Const(value=42)).run(None)
         assert result == 42
 
-    def test_on_result_transforms_result(self) -> None:
-        """on_result can transform the evaluation result."""
+    def test_finalize_transforms_result(self) -> None:
+        """Finalize can transform the evaluation result."""
 
         class Const(Node[float], tag="const_hook_transform"):
             value: float
 
         class RoundingCalculator(Interpreter[None, float]):
-            def on_result(self, result: float) -> float:
+            def finalize(self, result: float) -> float:
                 return round(result, 2)
 
             def eval(self, node: Node[Any]) -> float:
@@ -1130,14 +1130,14 @@ class TestInterpreterOnResultHook:
         result = RoundingCalculator(Const(value=3.14159)).run(None)
         assert result == 3.14
 
-    def test_on_result_with_validation(self) -> None:
-        """on_result can be used for validation."""
+    def test_finalize_with_validation(self) -> None:
+        """Finalize can be used for validation."""
 
         class Const(Node[int], tag="const_hook_validate"):
             value: int
 
         class ValidatingEvaluator(Interpreter[None, int]):
-            def on_result(self, result: int) -> int:
+            def finalize(self, result: int) -> int:
                 if result < 0:
                     msg = "Result must be non-negative"
                     raise ValueError(msg)
@@ -1158,14 +1158,14 @@ class TestInterpreterOnResultHook:
         with pytest.raises(ValueError, match="Result must be non-negative"):
             ValidatingEvaluator(Const(value=-5)).run(None)
 
-    def test_on_result_has_access_to_context(self) -> None:
-        """on_result can access self.ctx."""
+    def test_finalize_has_access_to_context(self) -> None:
+        """Finalize can access self.ctx."""
 
         class Const(Node[float], tag="const_hook_ctx"):
             value: float
 
         class ContextAwareEvaluator(Interpreter[dict[str, float], float]):
-            def on_result(self, result: float) -> float:
+            def finalize(self, result: float) -> float:
                 multiplier = self.ctx.get("multiplier", 1.0)
                 return result * multiplier
 
@@ -1184,8 +1184,8 @@ class TestInterpreterOnResultHook:
         # With multiplier
         assert evaluator.run({"multiplier": 2.5}) == 25.0
 
-    def test_on_result_called_once_per_run(self) -> None:
-        """on_result is called exactly once per run() invocation."""
+    def test_finalize_called_once_per_run(self) -> None:
+        """Finalize is called exactly once per run() invocation."""
 
         class Const(Node[int], tag="const_hook_count"):
             value: int
@@ -1195,7 +1195,7 @@ class TestInterpreterOnResultHook:
                 super().__init__(program)
                 self.hook_call_count = 0
 
-            def on_result(self, result: int) -> int:
+            def finalize(self, result: int) -> int:
                 self.hook_call_count += 1
                 return result
 
@@ -1214,8 +1214,8 @@ class TestInterpreterOnResultHook:
         evaluator.run(None)
         assert evaluator.hook_call_count == 2
 
-    def test_on_result_with_complex_program(self) -> None:
-        """on_result works with programs containing references."""
+    def test_finalize_with_complex_program(self) -> None:
+        """Finalize works with programs containing references."""
 
         class Const(Node[int], tag="const_hook_complex"):
             value: int
@@ -1225,7 +1225,7 @@ class TestInterpreterOnResultHook:
             right: Node[int] | Ref[Node[int]]
 
         class SummingEvaluator(Interpreter[None, int]):
-            def on_result(self, result: int) -> int:
+            def finalize(self, result: int) -> int:
                 return result * 10  # Scale up the final result
 
             def eval(self, node: Node[Any]) -> int:
@@ -1250,8 +1250,8 @@ class TestInterpreterOnResultHook:
         result = SummingEvaluator(prog).run(None)
         assert result == 80  # (5 + 3) * 10
 
-    def test_on_result_type_transformation(self) -> None:
-        """on_result can transform from eval type E to a different run type R."""
+    def test_finalize_type_transformation(self) -> None:
+        """Finalize can transform from eval type E to a different run type R."""
 
         class Const(Node[float], tag="const_hook_transform_type"):
             value: float
@@ -1263,7 +1263,7 @@ class TestInterpreterOnResultHook:
 
         # E=float, R=str - eval returns float, run returns str
         class StringifyingCalculator(Interpreter[None, float, str]):
-            def on_result(self, result: float) -> str:
+            def finalize(self, result: float) -> str:
                 return f"Result: {result:.2f}"
 
             def eval(self, node: Node[Any]) -> float:
@@ -1288,8 +1288,8 @@ class TestInterpreterOnResultHook:
         assert result == "Result: 13.50"
         assert isinstance(result, str)
 
-    def test_on_result_wrapping_type(self) -> None:
-        """on_result can wrap the result in a custom container type."""
+    def test_finalize_wrapping_type(self) -> None:
+        """Finalize can wrap the result in a custom container type."""
 
         @dataclass
         class EvalResult:
@@ -1309,7 +1309,7 @@ class TestInterpreterOnResultHook:
                 super().__init__(program)
                 self.node_count = 0
 
-            def on_result(self, result: int) -> EvalResult:
+            def finalize(self, result: int) -> EvalResult:
                 return EvalResult(value=result, node_count=self.node_count)
 
             def eval(self, node: Node[Any]) -> int:
