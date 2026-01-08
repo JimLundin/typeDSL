@@ -7,13 +7,11 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
-from typedsl.nodes import Ref
+from typedsl.nodes import Node, Ref
 from typedsl.serialization import from_dict, to_dict
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
-
-    from typedsl.nodes import Node
 
 
 @dataclass
@@ -152,22 +150,56 @@ class Interpreter[Ctx, R](ABC):
         self.ctx = ctx
         return self.eval(self.program.get_root_node())
 
-    def resolve[X](self, ref: Ref[X]) -> X:
-        """Resolve a reference to its target node.
+    def resolve[X](self, child: Node[X] | Ref[Node[X]]) -> Node[X]:
+        """Resolve a child to its node, handling both inline nodes and references.
+
+        This method accepts Child[T] fields (union of Node[T] | Ref[Node[T]])
+        and uniformly returns the node - either directly if inline, or by
+        resolving the reference.
 
         Args:
-            ref: The reference to resolve
+            child: Either an inline Node (returned as-is) or a Ref to resolve
 
         Returns:
-            The node referenced by the given ref
+            The node, either directly or resolved from the reference
 
         Raises:
-            KeyError: If the referenced node ID is not found
+            KeyError: If child is a Ref and the ID is not found in the program
+
+        Example:
+            class BinOp(Node[float]):
+                left: Child[float]  # Can be inline or ref
+                right: Child[float]
+
+            class Calculator(Interpreter[None, float]):
+                def eval(self, node):
+                    match node:
+                        case BinOp(left=l, right=r):
+                            left = self.eval(self.resolve(l))
+                            right = self.eval(self.resolve(r))
+                            return left + right
 
         """
-        return self.program.resolve(ref)
+        if isinstance(child, Node):
+            return child
+        return self.program.resolve(child)
 
     @abstractmethod
     def eval(self, node: Node[Any]) -> R:
-        """Evaluate a node. Implement with pattern matching on node types."""
+        """Evaluate a node. Implement with pattern matching on node types.
+
+        Type Notes:
+            The signature uses Node[Any] because Python's type system cannot
+            express the relationship between a node's type parameter T and
+            the interpreter's return type R. At runtime, you should only
+            evaluate nodes whose type parameter matches R.
+
+            For better type safety in user code, you can narrow the signature:
+
+                def eval(self, node: Node[float]) -> float:  # More specific
+                    match node:
+                        case Const(value=v): return v
+                        ...
+
+        """
         ...
