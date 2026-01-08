@@ -315,7 +315,9 @@ class Evaluator(Interpreter[dict[str, float], float]):
                     return left - right
                 if op == "*":
                     return left * right
-                return left / right
+                if op == "/":
+                    return left / right
+                raise ValueError(f"Unknown operator: {op}")
             case _:
                 raise NotImplementedError(type(node))
 

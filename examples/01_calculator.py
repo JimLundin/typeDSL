@@ -49,7 +49,10 @@ class Calculator(Interpreter[dict[str, float], float]):
                     return left - right
                 if op == "*":
                     return left * right
-                return left / right  # op == "/"
+                if op == "/":
+                    return left / right
+                msg = f"Unknown operator: {op}"
+                raise ValueError(msg)
             case _:
                 raise NotImplementedError(type(node))
 
