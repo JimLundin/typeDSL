@@ -1,5 +1,4 @@
-"""
-Calculator DSL Example
+"""Calculator DSL Example.
 ======================
 
 A simple mathematical expression evaluator demonstrating:
@@ -9,8 +8,8 @@ A simple mathematical expression evaluator demonstrating:
 """
 
 from typing import Literal
-from typedsl import Child, Node, Ref, Program, Interpreter
 
+from typedsl import Child, Interpreter, Node, Program, Ref
 
 # ============================================================================
 # Define Nodes
@@ -18,22 +17,26 @@ from typedsl import Child, Node, Ref, Program, Interpreter
 # Note: You can use simple tags like tag="calc_const", or multi-part signatures
 # like ns="calc", name="const", version="1.0" for namespacing/versioning.
 
+
 class Const(Node[float], tag="calc_const"):
     """A constant numeric value."""
+
     value: float
 
 
 class Var(Node[float], tag="calc_var"):
     """A variable reference."""
+
     name: str
 
 
 class BinOp(Node[float], tag="calc_binop"):
-    """Binary operation: +, -, *, /
+    """Binary operation: +, -, *, /.
 
     Uses Child[float] which accepts both inline nodes (Node[float])
     and references (Ref[Node[float]]), enabling both tree and graph structures.
     """
+
     op: Literal["+", "-", "*", "/"]
     left: Child[float]
     right: Child[float]
@@ -42,6 +45,7 @@ class BinOp(Node[float], tag="calc_binop"):
 # ============================================================================
 # Implement Interpreter
 # ============================================================================
+
 
 class Calculator(Interpreter[dict[str, float], float]):
     """Evaluates calculator expressions.
@@ -58,7 +62,8 @@ class Calculator(Interpreter[dict[str, float], float]):
 
             case Var(name=n):
                 if n not in self.ctx:
-                    raise ValueError(f"Undefined variable: {n}")
+                    msg = f"Undefined variable: {n}"
+                    raise ValueError(msg)
                 return self.ctx[n]
 
             case BinOp(op="+", left=l, right=r):
@@ -74,11 +79,13 @@ class Calculator(Interpreter[dict[str, float], float]):
             case BinOp(op="/", left=l, right=r):
                 right_val = self.eval(self.resolve(r))
                 if right_val == 0:
-                    raise ZeroDivisionError("Division by zero")
+                    msg = "Division by zero"
+                    raise ZeroDivisionError(msg)
                 return self.eval(self.resolve(l)) / right_val
 
             case _:
-                raise NotImplementedError(f"Unknown node: {type(node)}")
+                msg = f"Unknown node: {type(node)}"
+                raise NotImplementedError(msg)
 
 
 # ============================================================================
@@ -137,6 +144,6 @@ var_program = Program(
 
 # Create interpreter once, run multiple times with different contexts
 calculator = Calculator(var_program)
-result1 = calculator.run({"a": 5.0})    # result1 = 10.0
-result2 = calculator.run({"a": 10.0})   # result2 = 20.0
+result1 = calculator.run({"a": 5.0})  # result1 = 10.0
+result2 = calculator.run({"a": 10.0})  # result2 = 20.0
 result3 = calculator.run({"a": 100.0})  # result3 = 200.0

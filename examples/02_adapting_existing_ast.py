@@ -1,5 +1,4 @@
-"""
-Adapting an Existing AST
+"""Adapting an Existing AST.
 =========================
 
 Shows how to convert an external AST (Python's ast module) to typeDSL.
@@ -7,26 +6,30 @@ This pattern applies to ANY existing AST: tree-sitter, ANTLR, proprietary parser
 """
 
 import ast as python_ast
-from typing import Literal, Any
-from typedsl import Node, Ref, Program, Interpreter
+from typing import Any, Literal
 
+from typedsl import Interpreter, Node, Program, Ref
 
 # ============================================================================
 # Define nanoDSL Nodes Matching Python AST
 # ============================================================================
 
+
 class Constant(Node[Any], tag="py_const"):
-    """Maps to python_ast.Constant"""
+    """Maps to python_ast.Constant."""
+
     value: Any  # int, float, str, bool, None
 
 
 class Name(Node[Any], tag="py_name"):
-    """Maps to python_ast.Name"""
+    """Maps to python_ast.Name."""
+
     id: str
 
 
 class BinOp(Node[Any], tag="py_binop"):
-    """Maps to python_ast.BinOp"""
+    """Maps to python_ast.BinOp."""
+
     left: Ref[Node[Any]]
     op: Literal["Add", "Sub", "Mult", "Div"]
     right: Ref[Node[Any]]
@@ -36,10 +39,11 @@ class BinOp(Node[Any], tag="py_binop"):
 # Converter: Python AST → typeDSL
 # ============================================================================
 
+
 class PythonASTConverter:
     """Converts Python AST to typeDSL Program."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.nodes: dict[str, Node[Any]] = {}
         self.counter = 0
 
@@ -71,21 +75,19 @@ class PythonASTConverter:
                 node_id = f"binop_{self.counter}"
                 self.counter += 1
                 self.nodes[node_id] = BinOp(
-                    left=Ref(id=left_id),
-                    op=op_name,
-                    right=Ref(id=right_id)
+                    left=Ref(id=left_id), op=op_name, right=Ref(id=right_id),
                 )
                 return node_id
 
             case _:
-                raise NotImplementedError(
-                    f"Not implemented: {type(py_node).__name__}"
-                )
+                msg = f"Not implemented: {type(py_node).__name__}"
+                raise NotImplementedError(msg)
 
 
 # ============================================================================
 # Interpreter for typeDSL Python AST
 # ============================================================================
+
 
 class PythonASTInterpreter(Interpreter[dict[str, Any], Any]):
     """Evaluates typeDSL Python AST nodes."""
@@ -97,7 +99,8 @@ class PythonASTInterpreter(Interpreter[dict[str, Any], Any]):
 
             case Name(id=name):
                 if name not in self.ctx:
-                    raise NameError(f"Name '{name}' is not defined")
+                    msg = f"Name '{name}' is not defined"
+                    raise NameError(msg)
                 return self.ctx[name]
 
             case BinOp(left=l, op=op, right=r):
@@ -115,7 +118,8 @@ class PythonASTInterpreter(Interpreter[dict[str, Any], Any]):
                         return left_val / right_val
 
             case _:
-                raise NotImplementedError(f"Unknown node: {type(node)}")
+                msg = f"Unknown node: {type(node)}"
+                raise NotImplementedError(msg)
 
 
 # ============================================================================
@@ -140,5 +144,5 @@ restored_program = Program.from_json(json_str)
 interpreter = PythonASTInterpreter(restored_program)
 
 # Run with different variable bindings
-result1 = interpreter.run({"a": 3, "b": 7})    # result1 = 20
-result2 = interpreter.run({"a": 10, "b": 5})   # result2 = 30
+result1 = interpreter.run({"a": 3, "b": 7})  # result1 = 20
+result2 = interpreter.run({"a": 10, "b": 5})  # result2 = 30

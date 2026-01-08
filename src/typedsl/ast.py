@@ -175,7 +175,9 @@ class Interpreter[Ctx, R](ABC):
                 def eval(self, node):
                     match node:
                         case BinOp(left=l, right=r):
-                            return self.eval(self.resolve(l)) + self.eval(self.resolve(r))
+                            left = self.eval(self.resolve(l))
+                            right = self.eval(self.resolve(r))
+                            return left + right
 
         """
         if isinstance(child, Node):
