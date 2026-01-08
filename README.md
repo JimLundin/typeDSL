@@ -283,10 +283,10 @@ node = from_dict(user_input)
 ## Complete Example: Expression Evaluator
 
 ```python
-from typedsl import Child, Node, Interpreter, Program, Ref
 from typing import Literal
+from typedsl import Child, Interpreter, Node, Program, Ref
 
-# Define expression nodes using Child[T] for flexibility
+# Define nodes - Child[T] allows both inline nodes and references
 class Const(Node[float]):
     value: float
 
@@ -295,14 +295,10 @@ class Var(Node[float]):
 
 class BinOp(Node[float]):
     op: Literal["+", "-", "*", "/"]
-    left: Child[float]   # Accepts inline nodes or references
+    left: Child[float]
     right: Child[float]
 
-class UnaryOp(Node[float]):
-    op: Literal["-", "abs"]
-    operand: Child[float]
-
-# Implement interpreter using pattern matching
+# Implement interpreter
 class Evaluator(Interpreter[dict[str, float], float]):
     def eval(self, node: Node[float]) -> float:
         match node:
@@ -310,61 +306,40 @@ class Evaluator(Interpreter[dict[str, float], float]):
                 return v
             case Var(name=n):
                 return self.ctx[n]
-            case BinOp(op="+", left=l, right=r):
-                # resolve() handles both Node and Ref uniformly
-                return self.eval(self.resolve(l)) + self.eval(self.resolve(r))
-            case BinOp(op="-", left=l, right=r):
-                return self.eval(self.resolve(l)) - self.eval(self.resolve(r))
-            case BinOp(op="*", left=l, right=r):
-                return self.eval(self.resolve(l)) * self.eval(self.resolve(r))
-            case BinOp(op="/", left=l, right=r):
-                return self.eval(self.resolve(l)) / self.eval(self.resolve(r))
-            case UnaryOp(op="-", operand=o):
-                return -self.eval(self.resolve(o))
-            case UnaryOp(op="abs", operand=o):
-                return abs(self.eval(self.resolve(o)))
+            case BinOp(op=op, left=l, right=r):
+                left = self.eval(self.resolve(l))  # resolve() handles Node or Ref
+                right = self.eval(self.resolve(r))
+                if op == "+":
+                    return left + right
+                if op == "-":
+                    return left - right
+                if op == "*":
+                    return left * right
+                return left / right
             case _:
-                raise NotImplementedError(f"Unknown node: {type(node)}")
+                raise NotImplementedError(type(node))
 
-# Example 1: Simple tree (inline nodes)
+# Example 1: Simple tree - (3 + 4) * 2
 expr = BinOp(
     op="*",
-    left=UnaryOp(
-        op="abs",
-        operand=BinOp(op="+", left=Var(name="x"), right=Const(value=2.0))
-    ),
-    right=Const(value=3.0)
+    left=BinOp(op="+", left=Const(value=3.0), right=Const(value=4.0)),
+    right=Const(value=2.0),
 )
-evaluator = Evaluator(expr)
-result = evaluator.run({"x": -5.0})
-print(result)  # 9.0 = abs(-5 + 2) * 3
+print(Evaluator(expr).run({}))  # 14.0
 
-# Example 2: Graph with shared nodes (using references)
+# Example 2: Graph with shared nodes - (x + x) * 2
 prog = Program(
     root=Ref(id="result"),
     nodes={
         "x": Var(name="x"),
-        "sum": BinOp(op="+", left=Ref(id="x"), right=Ref(id="x")),  # x + x
+        "sum": BinOp(op="+", left=Ref(id="x"), right=Ref(id="x")),
         "result": BinOp(op="*", left=Ref(id="sum"), right=Const(value=2.0)),
-    }
+    },
 )
-evaluator = Evaluator(prog)
-result = evaluator.run({"x": 5.0})
-print(result)  # 20.0 = (5 + 5) * 2
+print(Evaluator(prog).run({"x": 5.0}))  # 20.0
 ```
 
-### Interpreter Type Notes
-
-The `Interpreter[Ctx, R]` base class uses `Node[Any]` in its abstract `eval` method because Python's type system cannot express the relationship between a node's type parameter `T` and the return type `R`.
-
-For better type safety in your implementation, you can narrow the signature:
-
-```python
-def eval(self, node: Node[float]) -> float:  # More specific than Node[Any]
-    ...
-```
-
-The `resolve()` method accepts `Child[T]` (union of `Node[T] | Ref[Node[T]]`) and uniformly returns the node - either directly if inline, or by resolving the reference. This lets you handle both composition patterns with the same code.
+The `resolve()` method accepts `Child[T]` (union of `Node[T] | Ref[Node[T]]`) and uniformly returns the node - either directly if inline, or by resolving the reference.
 
 ## Learning typeDSL
 

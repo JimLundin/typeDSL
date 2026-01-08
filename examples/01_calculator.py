@@ -1,23 +1,15 @@
 """Calculator DSL Example.
-======================
 
-A simple mathematical expression evaluator demonstrating:
-- Node definition
-- The Interpreter base class
-- Both simple nested trees and graph-based programs with shared subexpressions
+A simple mathematical expression evaluator demonstrating node definition,
+the Interpreter base class, and both nested trees and graph-based programs.
 """
 
 from typing import Literal
 
 from typedsl import Child, Interpreter, Node, Program, Ref
 
-# ============================================================================
+
 # Define Nodes
-# ============================================================================
-# Note: You can use simple tags like tag="calc_const", or multi-part signatures
-# like ns="calc", name="const", version="1.0" for namespacing/versioning.
-
-
 class Const(Node[float], tag="calc_const"):
     """A constant numeric value."""
 
@@ -31,85 +23,48 @@ class Var(Node[float], tag="calc_var"):
 
 
 class BinOp(Node[float], tag="calc_binop"):
-    """Binary operation: +, -, *, /.
-
-    Uses Child[float] which accepts both inline nodes (Node[float])
-    and references (Ref[Node[float]]), enabling both tree and graph structures.
-    """
+    """Binary operation with Child[float] fields for flexible composition."""
 
     op: Literal["+", "-", "*", "/"]
     left: Child[float]
     right: Child[float]
 
 
-# ============================================================================
 # Implement Interpreter
-# ============================================================================
-
-
 class Calculator(Interpreter[dict[str, float], float]):
-    """Evaluates calculator expressions.
-
-    The interpreter is reusable - create once with a program,
-    then run multiple times with different variable contexts.
-    """
+    """Evaluates calculator expressions."""
 
     def eval(self, node: Node[float]) -> float:
-        """Evaluate a node using pattern matching."""
         match node:
             case Const(value=v):
                 return v
-
             case Var(name=n):
-                if n not in self.ctx:
-                    msg = f"Undefined variable: {n}"
-                    raise ValueError(msg)
                 return self.ctx[n]
-
-            case BinOp(op="+", left=l, right=r):
-                # resolve() handles both inline nodes and refs uniformly
-                return self.eval(self.resolve(l)) + self.eval(self.resolve(r))
-
-            case BinOp(op="-", left=l, right=r):
-                return self.eval(self.resolve(l)) - self.eval(self.resolve(r))
-
-            case BinOp(op="*", left=l, right=r):
-                return self.eval(self.resolve(l)) * self.eval(self.resolve(r))
-
-            case BinOp(op="/", left=l, right=r):
-                right_val = self.eval(self.resolve(r))
-                if right_val == 0:
-                    msg = "Division by zero"
-                    raise ZeroDivisionError(msg)
-                return self.eval(self.resolve(l)) / right_val
-
+            case BinOp(op=op, left=l, right=r):
+                left = self.eval(self.resolve(l))
+                right = self.eval(self.resolve(r))
+                if op == "+":
+                    return left + right
+                if op == "-":
+                    return left - right
+                if op == "*":
+                    return left * right
+                return left / right  # op == "/"
             case _:
-                msg = f"Unknown node: {type(node)}"
-                raise NotImplementedError(msg)
+                raise NotImplementedError(type(node))
 
 
-# ============================================================================
-# Example 1: Simple nested tree
-# ============================================================================
-
-# Build a simple nested expression: (3 + 4) * 2
-# No Program wrapper needed - pass node directly to interpreter
+# Example 1: Simple nested tree - (3 + 4) * 2
 simple_expr = BinOp(
     op="*",
     left=BinOp(op="+", left=Const(value=3.0), right=Const(value=4.0)),
     right=Const(value=2.0),
 )
-
 calculator = Calculator(simple_expr)
-result = calculator.run({})  # result = 14.0
+result = calculator.run({})  # 14.0
 
 
-# ============================================================================
-# Example 2: Graph with shared subexpressions
-# ============================================================================
-
-# Build program with explicit node IDs: (x + y) * (x + y)
-# The subexpression (x + y) is shared - referenced twice
+# Example 2: Graph with shared subexpressions - (x + y) * (x + y)
 shared_program = Program(
     root=Ref(id="result"),
     nodes={
@@ -119,20 +74,11 @@ shared_program = Program(
         "result": BinOp(op="*", left=Ref(id="sum"), right=Ref(id="sum")),
     },
 )
-
 calculator = Calculator(shared_program)
-result = calculator.run({})  # result = 49.0
-
-# Program can be serialized/deserialized
-json_str = shared_program.to_json()
-restored = Program.from_json(json_str)
+result = calculator.run({})  # 49.0
 
 
-# ============================================================================
-# Example 3: Reusable interpreter with variables
-# ============================================================================
-
-# Build program with variables: a * 2
+# Example 3: Reusable interpreter with variables - a * 2
 var_program = Program(
     root=Ref(id="expr"),
     nodes={
@@ -141,9 +87,6 @@ var_program = Program(
         "expr": BinOp(op="*", left=Ref(id="a"), right=Ref(id="two")),
     },
 )
-
-# Create interpreter once, run multiple times with different contexts
 calculator = Calculator(var_program)
-result1 = calculator.run({"a": 5.0})  # result1 = 10.0
-result2 = calculator.run({"a": 10.0})  # result2 = 20.0
-result3 = calculator.run({"a": 100.0})  # result3 = 200.0
+result1 = calculator.run({"a": 5.0})  # 10.0
+result2 = calculator.run({"a": 10.0})  # 20.0
