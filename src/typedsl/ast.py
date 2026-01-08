@@ -116,13 +116,17 @@ class Interpreter[Ctx, R](ABC):
 
     Type Parameters:
         Ctx: Type of evaluation context (use None if no context needed)
-        R: Return type of run()
+        R: Return type of run() and eval()
 
     The interpreter can accept either a simple nested node tree or a full Program:
         - Simple: Interpreter(BinOp(...))
         - Complex: Interpreter(Program(root=Ref(id="expr"), nodes={...}))
 
     Interpreters are reusable across multiple runs with different contexts.
+
+    Hooks:
+        on_result: Override to transform the evaluation result before returning
+                   from run(). Useful for rounding, validation, or wrapping.
     """
 
     def __init__(self, program: Node[Any] | Program) -> None:
@@ -144,11 +148,36 @@ class Interpreter[Ctx, R](ABC):
             ctx: The evaluation context (variables, environment, etc.)
 
         Returns:
-            The result of evaluating the program
+            The result of evaluating the program, after any transformation
+            by on_result()
 
         """
         self.ctx = ctx
-        return self.eval(self.program.get_root_node())
+        result = self.eval(self.program.get_root_node())
+        return self.on_result(result)
+
+    def on_result(self, result: R) -> R:
+        """Hook called with the evaluation result before returning from run().
+
+        Override to transform, validate, or post-process the result.
+        Default implementation returns the result unchanged.
+
+        Args:
+            result: The result from evaluating the root node
+
+        Returns:
+            The final result to return from run()
+
+        Example:
+            class RoundingCalculator(Interpreter[None, float]):
+                def on_result(self, result: float) -> float:
+                    return round(result, 2)
+
+                def eval(self, node):
+                    ...
+
+        """
+        return result
 
     def resolve[X](self, child: Node[X] | Ref[Node[X]]) -> Node[X]:
         """Resolve a child to its node, handling both inline nodes and references.
