@@ -224,6 +224,7 @@ class TypeParameter(TypeDef, tag="typeparam"):
         default: Optional default type (PEP 696). Can be a concrete type or
             a TypeParameterRef when the default references another type parameter
             (e.g., class Foo[T, R = T] has R's default as TypeParameterRef("T"))
+
     """
 
     name: str

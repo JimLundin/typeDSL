@@ -1,5 +1,7 @@
 """Integration tests for typeDSL - end-to-end workflows."""
 
+import sys
+
 import pytest
 
 from typedsl import (
@@ -20,6 +22,7 @@ from typedsl.types import (
     NodeType,
     RefType,
     StrType,
+    TypeParameterRef,
 )
 
 
@@ -246,17 +249,27 @@ class TestGenericNodeWorkflow:
         assert "value" in field_names
         assert "label" in field_names
 
+    @pytest.mark.skipif(
+        sys.version_info < (3, 13),
+        reason="TypeVar defaults in class syntax require Python 3.13+",
+    )
     def test_generic_node_with_type_parameter_defaults(self) -> None:
         """Test extracting schema from generic node with PEP 696 defaults.
 
         Example: class BinaryOp[T, R = T] where R defaults to T.
         """
-        from typedsl.types import TypeParameterRef
-
         # Define generic node with default type parameter
-        class BinaryOp[T, R = T](Node[R], tag="binop_default_test"):
-            left: Node[T]
-            right: Node[T]
+        # Note: This syntax requires Python 3.13+
+        exec(  # noqa: S102
+            """
+class BinaryOp[T, R = T](Node[R], tag="binop_default_test"):
+    left: Node[T]
+    right: Node[T]
+""",
+            {"Node": Node},
+            local_vars := {},
+        )
+        BinaryOp = local_vars["BinaryOp"]  # noqa: N806
 
         # Extract schema
         schema = node_schema(BinaryOp)

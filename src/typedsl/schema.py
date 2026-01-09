@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import types
+import typing
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields
 from decimal import Decimal
@@ -104,6 +105,7 @@ def _extract_typevar_default(typevar: TypeVar) -> TypeDef | None:
         None if no default is specified
         TypeParameterRef if default references another TypeVar
         Extracted TypeDef for concrete default types
+
     """
     # Get __default__, handling Python < 3.13 where it doesn't exist
     default = getattr(typevar, "__default__", None)
@@ -112,13 +114,8 @@ def _extract_typevar_default(typevar: TypeVar) -> TypeDef | None:
 
     # Check for typing.NoDefault sentinel (Python 3.13+)
     # NoDefault means no default was specified
-    try:
-        import typing
-
-        if hasattr(typing, "NoDefault") and default is typing.NoDefault:
-            return None
-    except ImportError:
-        pass
+    if hasattr(typing, "NoDefault") and default is typing.NoDefault:
+        return None
 
     # If default is another TypeVar, create a reference to it
     if isinstance(default, TypeVar):
@@ -194,7 +191,7 @@ def extract_type(py_type: Any) -> TypeDef:
         return LiteralType(values=args)
 
     # Node types
-    # TODO: Parameterized generic nodes don't correctly compute return type.
+    # NOTE: Parameterized generic nodes don't correctly compute return type.
     # Container[str] where class Container[T](Node[list[T]]) should give
     # NodeType(returns=ListType(element=StrType())), but currently gives
     # NodeType(returns=StrType()) because we take args[0] directly instead

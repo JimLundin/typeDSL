@@ -26,6 +26,7 @@ from typedsl.types import (
     StrType,
     TimeType,
     TypeParameter,
+    TypeParameterRef,
     UnionType,
 )
 
@@ -140,8 +141,6 @@ class TestExtractTypeParameter:
 
         Example: class Foo[T, R = T] - R's default references T.
         """
-        from typedsl.types import TypeParameterRef
-
         T = TypeVar("T")
         R = TypeVar("R", default=T)
         result = extract_type(R)
