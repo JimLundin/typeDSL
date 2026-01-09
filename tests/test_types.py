@@ -20,6 +20,7 @@ from typedsl.types import (
     NodeType,
     NoneType,
     RefType,
+    ReturnType,
     SequenceType,
     SetType,
     StrType,
@@ -202,20 +203,38 @@ class TestGenericContainerTypes:
             fst.element = StrType()
 
 
+class TestReturnType:
+    """Test ReturnType (return type constraint)."""
+
+    def test_return_type_creation(self) -> None:
+        """Test creating a ReturnType."""
+        rt = ReturnType(returns=FloatType())
+        assert rt.returns.tag == "float"
+        assert rt.tag == "return"
+
+    def test_return_type_frozen(self) -> None:
+        """Test that ReturnType is immutable."""
+        rt = ReturnType(returns=IntType())
+        with pytest.raises((AttributeError, TypeError)):
+            rt.returns = FloatType()
+
+
 class TestNodeType:
-    """Test NodeType."""
+    """Test NodeType (specific node reference)."""
 
     def test_node_type_creation(self) -> None:
         """Test creating a NodeType."""
-        nt = NodeType(returns=FloatType())
-        assert nt.returns.tag == "float"
+        nt = NodeType(node_tag="MyNode", type_args=(FloatType(),))
+        assert nt.node_tag == "MyNode"
+        assert len(nt.type_args) == 1
+        assert nt.type_args[0].tag == "float"
         assert nt.tag == "node"
 
     def test_node_type_frozen(self) -> None:
         """Test that NodeType is immutable."""
-        nt = NodeType(returns=IntType())
+        nt = NodeType(node_tag="MyNode")
         with pytest.raises((AttributeError, TypeError)):
-            nt.returns = FloatType()
+            nt.node_tag = "OtherNode"
 
 
 class TestRefType:

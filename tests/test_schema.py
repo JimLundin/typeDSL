@@ -7,7 +7,8 @@ from typing import TypeVar
 
 import pytest
 
-from typedsl.schema import extract_type
+from typedsl.nodes import Node
+from typedsl.schema import extract_type, node_schema
 from typedsl.types import (
     BoolType,
     BytesType,
@@ -21,7 +22,9 @@ from typedsl.types import (
     IntType,
     ListType,
     MappingType,
+    NodeType,
     NoneType,
+    ReturnType,
     SequenceType,
     StrType,
     TimeType,
@@ -336,3 +339,94 @@ class TestEdgeCases:
     def test_dict_with_wrong_arg_count_raises(self) -> None:
         """Test that dict with wrong number of args raises ValueError."""
         # This is also hard to test as Python's typing system enforces this
+
+
+class TestExtractSpecificNodeTypes:
+    """Test extracting specific node types as field types."""
+
+    def test_extract_generic_node_type(self) -> None:
+        """Test that generic Node[T] extracts as ReturnType (return type constraint)."""
+        result = extract_type(Node[float])
+        assert isinstance(result, ReturnType)
+        assert isinstance(result.returns, FloatType)
+
+    def test_extract_simple_specific_node(self) -> None:
+        """Test extracting a simple specific node class."""
+
+        class SimpleConst(Node[int], tag="simple_const_test"):
+            value: int
+
+        result = extract_type(SimpleConst)
+        assert isinstance(result, NodeType)
+        assert result.node_tag == "simple_const_test"
+        assert result.type_args == ()
+
+    def test_extract_parameterized_specific_node(self) -> None:
+        """Test extracting a parameterized specific node like Const[float]."""
+
+        class GenericConst[T](Node[T], tag="generic_const_test"):
+            value: T
+
+        result = extract_type(GenericConst[float])
+        assert isinstance(result, NodeType)
+        assert result.node_tag == "generic_const_test"
+        assert len(result.type_args) == 1
+        assert isinstance(result.type_args[0], FloatType)
+
+    def test_extract_node_with_transformed_return_type(self) -> None:
+        """Test node where return type differs from type parameter."""
+
+        class ArrayNode[T](Node[list[T]], tag="array_node_test"):
+            items: list[T]
+
+        result = extract_type(ArrayNode[str])
+        assert isinstance(result, NodeType)
+        assert result.node_tag == "array_node_test"
+        assert len(result.type_args) == 1
+        assert isinstance(result.type_args[0], StrType)
+        # Return type is derived from schema at runtime, not stored in NodeType
+
+    def test_extract_node_with_complex_return_type(self) -> None:
+        """Test node with complex return type transformation."""
+
+        class PairNode[T](Node[tuple[T, T]], tag="pair_node_test"):
+            first: T
+            second: T
+
+        result = extract_type(PairNode[int])
+        assert isinstance(result, NodeType)
+        assert result.node_tag == "pair_node_test"
+        assert len(result.type_args) == 1
+        assert isinstance(result.type_args[0], IntType)
+        # Return type is derived from schema at runtime, not stored in NodeType
+
+    def test_specific_node_as_field_in_schema(self) -> None:
+        """Test that specific nodes used as fields in schemas are captured correctly."""
+
+        class ValueNode[T](Node[T], tag="value_node_schema_test"):
+            value: T
+
+        class ContainerNode(Node[None], tag="container_node_schema_test"):
+            child: ValueNode[float]
+
+        schema = node_schema(ContainerNode)
+        assert len(schema.fields) == 1
+        child_type = schema.fields[0].type
+        assert isinstance(child_type, NodeType)
+        assert child_type.node_tag == "value_node_schema_test"
+        assert isinstance(child_type.type_args[0], FloatType)
+
+    def test_transformed_node_as_field_in_schema(self) -> None:
+        """Test that transformed nodes (Array[str]) as fields are captured correctly."""
+
+        class ListWrapper[T](Node[list[T]], tag="list_wrapper_schema_test"):
+            items: list[T]
+
+        class WrapperContainer(Node[None], tag="wrapper_container_schema_test"):
+            wrapped: ListWrapper[str]
+
+        schema = node_schema(WrapperContainer)
+        wrapped_type = schema.fields[0].type
+        assert isinstance(wrapped_type, NodeType)
+        assert wrapped_type.node_tag == "list_wrapper_schema_test"
+        assert isinstance(wrapped_type.type_args[0], StrType)

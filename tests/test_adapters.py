@@ -13,6 +13,7 @@ from typedsl.types import (
     ListType,
     NodeType,
     RefType,
+    ReturnType,
     StrType,
     UnionType,
 )
@@ -306,23 +307,35 @@ class TestJSONAdapterSerializeTypeDef:
             "options": [{"tag": "int"}, {"tag": "str"}],
         }
 
-    def test_serialize_node_typedef(self) -> None:
-        """Test serializing NodeType."""
+    def test_serialize_return_typedef(self) -> None:
+        """Test serializing ReturnType (return type constraint)."""
         adapter = JSONAdapter()
-        node_type = NodeType(returns=FloatType())
+        return_type = ReturnType(returns=FloatType())
+        result = adapter.serialize_typedef(return_type)
+
+        assert result == {"tag": "return", "returns": {"tag": "float"}}
+
+    def test_serialize_node_typedef(self) -> None:
+        """Test serializing NodeType (specific node reference)."""
+        adapter = JSONAdapter()
+        node_type = NodeType(node_tag="MyNode", type_args=(FloatType(),))
         result = adapter.serialize_typedef(node_type)
 
-        assert result == {"tag": "node", "returns": {"tag": "float"}}
+        assert result == {
+            "tag": "node",
+            "node_tag": "MyNode",
+            "type_args": [{"tag": "float"}],
+        }
 
     def test_serialize_ref_typedef(self) -> None:
         """Test serializing RefType."""
         adapter = JSONAdapter()
-        ref_type = RefType(target=NodeType(returns=IntType()))
+        ref_type = RefType(target=ReturnType(returns=IntType()))
         result = adapter.serialize_typedef(ref_type)
 
         assert result == {
             "tag": "ref",
-            "target": {"tag": "node", "returns": {"tag": "int"}},
+            "target": {"tag": "return", "returns": {"tag": "int"}},
         }
 
 
@@ -424,7 +437,7 @@ class TestJSONAdapterSerializeNodeSchema:
         """Test serializing schema for node containing another node."""
 
         class Container(Node[int], tag="container_schema"):
-            child: Node[int]
+            child: Node[int]  # Generic Node[T] = ReturnType
 
         adapter = JSONAdapter()
         schema = node_schema(Container)
@@ -433,7 +446,7 @@ class TestJSONAdapterSerializeNodeSchema:
         assert result["tag"] == "container_schema"
         assert len(result["fields"]) == 1
         assert result["fields"][0]["name"] == "child"
-        assert result["fields"][0]["type"]["tag"] == "node"
+        assert result["fields"][0]["type"]["tag"] == "return"
         assert result["fields"][0]["type"]["returns"]["tag"] == "int"
 
     def test_serialize_generic_node_schema(self) -> None:

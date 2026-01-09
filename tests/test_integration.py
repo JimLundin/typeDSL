@@ -17,8 +17,8 @@ from typedsl.types import (
     FloatType,
     IntType,
     ListType,
-    NodeType,
     RefType,
+    ReturnType,
     StrType,
 )
 
@@ -288,7 +288,7 @@ class TestTypeExtractionWorkflow:
             int_field: int
             str_field: str
             list_field: list[int]
-            node_field: Node[float]
+            node_field: Node[float]  # Generic Node[T] = ReturnType
             ref_field: Ref[Node[int]]
 
         # Extract schema
@@ -302,7 +302,8 @@ class TestTypeExtractionWorkflow:
         assert isinstance(fields_by_name["str_field"], StrType)
         assert isinstance(fields_by_name["list_field"], ListType)
         assert isinstance(fields_by_name["list_field"].element, IntType)
-        assert isinstance(fields_by_name["node_field"], NodeType)
+        # Node[float] is a return type constraint, not a specific node reference
+        assert isinstance(fields_by_name["node_field"], ReturnType)
         assert isinstance(fields_by_name["node_field"].returns, FloatType)
         assert isinstance(fields_by_name["ref_field"], RefType)
 

@@ -197,10 +197,27 @@ class LiteralType(TypeDef, tag="literal"):
     values: tuple[str | int | bool, ...]
 
 
-class NodeType(TypeDef, tag="node"):
-    """Node type: Node[float] → NodeType(returns=FloatType())."""
+class ReturnType(TypeDef, tag="return"):
+    """Return type constraint: Node[float] → ReturnType(returns=FloatType()).
+
+    Represents "any node that returns T" - a constraint on return type,
+    not a reference to a specific node schema.
+    """
 
     returns: TypeDef
+
+
+class NodeType(TypeDef, tag="node"):
+    """Specific node type reference.
+
+    Example: Const[float] → NodeType(node_tag="Const", type_args=(...))
+
+    References a specific node schema by tag. The return type is derived
+    from the node's schema at runtime, not stored here.
+    """
+
+    node_tag: str
+    type_args: tuple[TypeDef, ...] = ()
 
 
 class RefType(TypeDef, tag="ref"):

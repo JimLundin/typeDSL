@@ -36,6 +36,7 @@ from typedsl.types import (
     NodeType,
     NoneType,
     RefType,
+    ReturnType,
     SequenceType,
     SetType,
     StrType,
@@ -160,9 +161,18 @@ def extract_type(py_type: Any) -> TypeDef:
 
     # Node types
     if origin is not None and isinstance(origin, type) and issubclass(origin, Node):
-        return NodeType(extract_type(args[0]) if args else NoneType())
+        # Parameterized node: Node[T] or SpecificNode[T]
+        if origin is Node:
+            # Generic Node[T] - return type constraint (any node returning T)
+            return ReturnType(extract_type(args[0]) if args else NoneType())
+        # Specific node subclass like Const[float] or Array[str]
+        return _extract_node_type(origin, args)
     if isinstance(py_type, type) and issubclass(py_type, Node):
-        return NodeType(_extract_node_returns(py_type))
+        # Unparameterized node class
+        if py_type is Node:
+            return ReturnType(NoneType())
+        # Specific node subclass without type args (non-generic or using defaults)
+        return _extract_node_type(py_type, ())
 
     # Ref type
     if origin is Ref:
@@ -186,6 +196,22 @@ def _extract_node_returns(cls: type[Node[Any]]) -> TypeDef:
         if args := get_args(base):
             return extract_type(args[0])
     return NoneType()
+
+
+def _extract_node_type(
+    cls: type[Node[Any]], type_args: tuple[Any, ...],
+) -> NodeType:
+    """Extract NodeType for a specific node subclass.
+
+    The return type is not stored - it's derived from the node's schema at runtime.
+    """
+    # Convert type args to TypeDefs
+    type_args_typedefs = tuple(extract_type(arg) for arg in type_args)
+
+    return NodeType(
+        node_tag=cls.tag,
+        type_args=type_args_typedefs,
+    )
 
 
 def node_schema(cls: type[Node[Any]]) -> NodeSchema:
