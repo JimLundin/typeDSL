@@ -99,7 +99,7 @@ class NodeSchema:
 
 
 def _extract_typevar_default(typevar: TypeVar) -> TypeDef | None:
-    """Extract the default from a TypeVar (PEP 696, Python 3.13+).
+    """Extract the default from a TypeVar (PEP 696).
 
     Returns:
         None if no default is specified
@@ -107,15 +107,10 @@ def _extract_typevar_default(typevar: TypeVar) -> TypeDef | None:
         Extracted TypeDef for concrete default types
 
     """
-    # Get __default__, handling Python < 3.13 where it doesn't exist
-    default = getattr(typevar, "__default__", None)
-    if default is None:
-        return None
+    default = typevar.__default__
 
-    # Check for typing.NoDefault sentinel (Python 3.13+)
-    # NoDefault means no default was specified
-    no_default = getattr(typing, "NoDefault", None)
-    if no_default is not None and default is no_default:
+    # NoDefault sentinel means no default was specified
+    if default is typing.NoDefault:
         return None
 
     # If default is another TypeVar, create a reference to it
@@ -123,7 +118,6 @@ def _extract_typevar_default(typevar: TypeVar) -> TypeDef | None:
         return TypeParameterRef(name=default.__name__)
 
     # Otherwise, extract the default type recursively
-    # Import here to avoid circular dependency
     return extract_type(default)
 
 
