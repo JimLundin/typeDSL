@@ -43,6 +43,7 @@ from typedsl.types import (
     TupleType,
     TypeDef,
     TypeParameter,
+    TypeParameterRef,
     UnionType,
     substitute_type_params,
 )
@@ -96,6 +97,38 @@ class NodeSchema:
     fields: tuple[FieldSchema, ...]
 
 
+def _extract_typevar_default(typevar: TypeVar) -> TypeDef | None:
+    """Extract the default from a TypeVar (PEP 696, Python 3.13+).
+
+    Returns:
+        None if no default is specified
+        TypeParameterRef if default references another TypeVar
+        Extracted TypeDef for concrete default types
+    """
+    # Get __default__, handling Python < 3.13 where it doesn't exist
+    default = getattr(typevar, "__default__", None)
+    if default is None:
+        return None
+
+    # Check for typing.NoDefault sentinel (Python 3.13+)
+    # NoDefault means no default was specified
+    try:
+        import typing
+
+        if hasattr(typing, "NoDefault") and default is typing.NoDefault:
+            return None
+    except ImportError:
+        pass
+
+    # If default is another TypeVar, create a reference to it
+    if isinstance(default, TypeVar):
+        return TypeParameterRef(name=default.__name__)
+
+    # Otherwise, extract the default type recursively
+    # Import here to avoid circular dependency
+    return extract_type(default)
+
+
 def extract_type(py_type: Any) -> TypeDef:
     """Convert Python type annotation to TypeDef."""
     origin = get_origin(py_type)
@@ -104,9 +137,11 @@ def extract_type(py_type: Any) -> TypeDef:
     # Handle TypeVar
     if isinstance(py_type, TypeVar):
         bound = py_type.__bound__
+        default = _extract_typevar_default(py_type)
         return TypeParameter(
             name=py_type.__name__,
             bound=extract_type(bound) if bound is not None else None,
+            default=default,
         )
 
     # Handle registered external types
@@ -159,6 +194,11 @@ def extract_type(py_type: Any) -> TypeDef:
         return LiteralType(values=args)
 
     # Node types
+    # TODO: Parameterized generic nodes don't correctly compute return type.
+    # Container[str] where class Container[T](Node[list[T]]) should give
+    # NodeType(returns=ListType(element=StrType())), but currently gives
+    # NodeType(returns=StrType()) because we take args[0] directly instead
+    # of substituting T=str into the actual return type list[T].
     if origin is not None and isinstance(origin, type) and issubclass(origin, Node):
         return NodeType(extract_type(args[0]) if args else NoneType())
     if isinstance(py_type, type) and issubclass(py_type, Node):
@@ -197,10 +237,12 @@ def node_schema(cls: type[Node[Any]]) -> NodeSchema:
         for param in cls.__type_params__:
             if isinstance(param, TypeVar):
                 bound = getattr(param, "__bound__", None)
+                default = _extract_typevar_default(param)
                 type_params.append(
                     TypeParameter(
                         name=param.__name__,
                         bound=extract_type(bound) if bound is not None else None,
+                        default=default,
                     ),
                 )
 

@@ -120,6 +120,52 @@ class TestExtractTypeParameter:
         assert result.bound is not None
         assert isinstance(result.bound, IntType)
 
+    def test_extract_type_parameter_no_default(self) -> None:
+        """Test that TypeVar without default has default=None."""
+        T = TypeVar("T")
+        result = extract_type(T)
+        assert isinstance(result, TypeParameter)
+        assert result.default is None
+
+    def test_extract_type_parameter_with_concrete_default(self) -> None:
+        """Test extracting TypeVar with concrete default type (PEP 696)."""
+        T = TypeVar("T", default=int)
+        result = extract_type(T)
+        assert isinstance(result, TypeParameter)
+        assert result.name == "T"
+        assert isinstance(result.default, IntType)
+
+    def test_extract_type_parameter_with_typevar_default(self) -> None:
+        """Test extracting TypeVar with another TypeVar as default (PEP 696).
+
+        Example: class Foo[T, R = T] - R's default references T.
+        """
+        from typedsl.types import TypeParameterRef
+
+        T = TypeVar("T")
+        R = TypeVar("R", default=T)
+        result = extract_type(R)
+        assert isinstance(result, TypeParameter)
+        assert result.name == "R"
+        assert isinstance(result.default, TypeParameterRef)
+        assert result.default.name == "T"
+
+    def test_extract_type_parameter_with_complex_default(self) -> None:
+        """Test extracting TypeVar with complex default type."""
+        T = TypeVar("T", default=list[int])
+        result = extract_type(T)
+        assert isinstance(result, TypeParameter)
+        assert isinstance(result.default, ListType)
+        assert isinstance(result.default.element, IntType)
+
+    def test_extract_type_parameter_with_bound_and_default(self) -> None:
+        """Test extracting TypeVar with both bound and default."""
+        T = TypeVar("T", bound=int, default=int)
+        result = extract_type(T)
+        assert isinstance(result, TypeParameter)
+        assert isinstance(result.bound, IntType)
+        assert isinstance(result.default, IntType)
+
 
 class TestExtractUnion:
     """Test extracting Union types."""
