@@ -114,7 +114,8 @@ def _extract_typevar_default(typevar: TypeVar) -> TypeDef | None:
 
     # Check for typing.NoDefault sentinel (Python 3.13+)
     # NoDefault means no default was specified
-    if hasattr(typing, "NoDefault") and default is typing.NoDefault:
+    no_default = getattr(typing, "NoDefault", None)
+    if no_default is not None and default is no_default:
         return None
 
     # If default is another TypeVar, create a reference to it

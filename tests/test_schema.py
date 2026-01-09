@@ -1,6 +1,7 @@
 """Tests for typedsl.schema module."""
 
 import datetime
+import sys
 from collections.abc import Mapping, Sequence
 from decimal import Decimal
 from typing import TypeVar
@@ -128,6 +129,10 @@ class TestExtractTypeParameter:
         assert isinstance(result, TypeParameter)
         assert result.default is None
 
+    @pytest.mark.skipif(
+        sys.version_info < (3, 13),
+        reason="TypeVar default parameter requires Python 3.13+",
+    )
     def test_extract_type_parameter_with_concrete_default(self) -> None:
         """Test extracting TypeVar with concrete default type (PEP 696)."""
         T = TypeVar("T", default=int)
@@ -136,6 +141,10 @@ class TestExtractTypeParameter:
         assert result.name == "T"
         assert isinstance(result.default, IntType)
 
+    @pytest.mark.skipif(
+        sys.version_info < (3, 13),
+        reason="TypeVar default parameter requires Python 3.13+",
+    )
     def test_extract_type_parameter_with_typevar_default(self) -> None:
         """Test extracting TypeVar with another TypeVar as default (PEP 696).
 
@@ -149,6 +158,10 @@ class TestExtractTypeParameter:
         assert isinstance(result.default, TypeParameterRef)
         assert result.default.name == "T"
 
+    @pytest.mark.skipif(
+        sys.version_info < (3, 13),
+        reason="TypeVar default parameter requires Python 3.13+",
+    )
     def test_extract_type_parameter_with_complex_default(self) -> None:
         """Test extracting TypeVar with complex default type."""
         T = TypeVar("T", default=list[int])
@@ -157,6 +170,10 @@ class TestExtractTypeParameter:
         assert isinstance(result.default, ListType)
         assert isinstance(result.default.element, IntType)
 
+    @pytest.mark.skipif(
+        sys.version_info < (3, 13),
+        reason="TypeVar default parameter requires Python 3.13+",
+    )
     def test_extract_type_parameter_with_bound_and_default(self) -> None:
         """Test extracting TypeVar with both bound and default."""
         T = TypeVar("T", bound=int, default=int)
