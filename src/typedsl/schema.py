@@ -199,7 +199,8 @@ def _extract_node_returns(cls: type[Node[Any]]) -> TypeDef:
 
 
 def _extract_node_type(
-    cls: type[Node[Any]], type_args: tuple[Any, ...],
+    cls: type[Node[Any]],
+    type_args: tuple[Any, ...],
 ) -> NodeType:
     """Extract NodeType for a specific node subclass.
 
