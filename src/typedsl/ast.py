@@ -108,7 +108,7 @@ class Program:
         return cls.from_dict(json.loads(s))
 
 
-class Interpreter[Ctx, R](ABC):
+class Interpreter[Ctx, E, R = E](ABC):
     """Base class for program interpreters.
 
     Provides program access, context management, and reference resolution.
@@ -116,13 +116,26 @@ class Interpreter[Ctx, R](ABC):
 
     Type Parameters:
         Ctx: Type of evaluation context (use None if no context needed)
-        R: Return type of run()
+        E: Return type of eval() - the intermediate evaluation result
+        R: Return type of run() - defaults to E if not specified
+
+    Simple usage (R defaults to E):
+        class Calculator(Interpreter[dict[str, float], float]): ...
+
+    With result transformation (explicit R):
+        class StringifyingCalc(Interpreter[None, float, str]):
+            def finalize(self, result: float) -> str:
+                return f"Result: {result}"
 
     The interpreter can accept either a simple nested node tree or a full Program:
         - Simple: Interpreter(BinOp(...))
         - Complex: Interpreter(Program(root=Ref(id="expr"), nodes={...}))
 
     Interpreters are reusable across multiple runs with different contexts.
+
+    Hooks:
+        finalize: Override to transform the evaluation result (E) to the final
+                  result (R). Only needed when E and R are different types.
     """
 
     def __init__(self, program: Node[Any] | Program) -> None:
@@ -144,11 +157,40 @@ class Interpreter[Ctx, R](ABC):
             ctx: The evaluation context (variables, environment, etc.)
 
         Returns:
-            The result of evaluating the program
+            The result of evaluating the program, after transformation
+            by finalize()
 
         """
         self.ctx = ctx
-        return self.eval(self.program.get_root_node())
+        result = self.eval(self.program.get_root_node())
+        return self.finalize(result)
+
+    def finalize(self, result: E) -> R:
+        """Finalize the evaluation result before returning from run().
+
+        Override to transform the eval result (type E) to the final result (type R).
+        When E and R are the same type, the default implementation returns unchanged.
+        When E and R differ, you MUST override this method.
+
+        Args:
+            result: The result from evaluating the root node (type E)
+
+        Returns:
+            The final result to return from run() (type R)
+
+        Example (same type - no override needed):
+            class Calculator(Interpreter[None, float]):
+                def eval(self, node): ...
+
+        Example (type transformation - override required):
+            class StringifyingCalc(Interpreter[None, float, str]):
+                def finalize(self, result: float) -> str:
+                    return f"Result: {result:.2f}"
+
+                def eval(self, node): ...
+
+        """
+        return cast("R", result)
 
     def resolve[X](self, child: Node[X] | Ref[Node[X]]) -> Node[X]:
         """Resolve a child to its node, handling both inline nodes and references.
@@ -185,14 +227,14 @@ class Interpreter[Ctx, R](ABC):
         return self.program.resolve(child)
 
     @abstractmethod
-    def eval(self, node: Node[Any]) -> R:
+    def eval(self, node: Node[Any]) -> E:
         """Evaluate a node. Implement with pattern matching on node types.
 
         Type Notes:
             The signature uses Node[Any] because Python's type system cannot
             express the relationship between a node's type parameter T and
-            the interpreter's return type R. At runtime, you should only
-            evaluate nodes whose type parameter matches R.
+            the interpreter's eval type E. At runtime, you should only
+            evaluate nodes whose type parameter matches E.
 
             For better type safety in user code, you can narrow the signature:
 

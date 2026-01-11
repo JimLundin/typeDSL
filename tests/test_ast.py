@@ -1,6 +1,7 @@
 """Tests for typedsl.ast module."""
 
 import json
+from dataclasses import dataclass
 from typing import Any
 
 import pytest
@@ -1087,3 +1088,244 @@ class TestInterpreterComplexExamples:
 
         result = MixedEvaluator(prog).run(None)
         assert result == 15
+
+
+class TestInterpreterFinalizeHook:
+    """Tests for the finalize hook."""
+
+    def test_default_finalize_returns_unchanged(self) -> None:
+        """Default finalize returns the result unchanged."""
+
+        class Const(Node[int], tag="const_hook_default"):
+            value: int
+
+        class SimpleEvaluator(Interpreter[None, int]):
+            def eval(self, node: Node[Any]) -> int:
+                match node:
+                    case Const(value=v):
+                        return v
+                    case _:
+                        raise NotImplementedError
+
+        result = SimpleEvaluator(Const(value=42)).run(None)
+        assert result == 42
+
+    def test_finalize_transforms_result(self) -> None:
+        """Finalize can transform the evaluation result."""
+
+        class Const(Node[float], tag="const_hook_transform"):
+            value: float
+
+        class RoundingCalculator(Interpreter[None, float]):
+            def finalize(self, result: float) -> float:
+                return round(result, 2)
+
+            def eval(self, node: Node[Any]) -> float:
+                match node:
+                    case Const(value=v):
+                        return v
+                    case _:
+                        raise NotImplementedError
+
+        result = RoundingCalculator(Const(value=3.14159)).run(None)
+        assert result == 3.14
+
+    def test_finalize_with_validation(self) -> None:
+        """Finalize can be used for validation."""
+
+        class Const(Node[int], tag="const_hook_validate"):
+            value: int
+
+        class ValidatingEvaluator(Interpreter[None, int]):
+            def finalize(self, result: int) -> int:
+                if result < 0:
+                    msg = "Result must be non-negative"
+                    raise ValueError(msg)
+                return result
+
+            def eval(self, node: Node[Any]) -> int:
+                match node:
+                    case Const(value=v):
+                        return v
+                    case _:
+                        raise NotImplementedError
+
+        # Positive value passes
+        result = ValidatingEvaluator(Const(value=10)).run(None)
+        assert result == 10
+
+        # Negative value raises
+        with pytest.raises(ValueError, match="Result must be non-negative"):
+            ValidatingEvaluator(Const(value=-5)).run(None)
+
+    def test_finalize_has_access_to_context(self) -> None:
+        """Finalize can access self.ctx."""
+
+        class Const(Node[float], tag="const_hook_ctx"):
+            value: float
+
+        class ContextAwareEvaluator(Interpreter[dict[str, float], float]):
+            def finalize(self, result: float) -> float:
+                multiplier = self.ctx.get("multiplier", 1.0)
+                return result * multiplier
+
+            def eval(self, node: Node[Any]) -> float:
+                match node:
+                    case Const(value=v):
+                        return v
+                    case _:
+                        raise NotImplementedError
+
+        evaluator = ContextAwareEvaluator(Const(value=10.0))
+
+        # Without multiplier
+        assert evaluator.run({}) == 10.0
+
+        # With multiplier
+        assert evaluator.run({"multiplier": 2.5}) == 25.0
+
+    def test_finalize_called_once_per_run(self) -> None:
+        """Finalize is called exactly once per run() invocation."""
+
+        class Const(Node[int], tag="const_hook_count"):
+            value: int
+
+        class CountingEvaluator(Interpreter[None, int]):
+            def __init__(self, program: Node[Any] | Program) -> None:
+                super().__init__(program)
+                self.hook_call_count = 0
+
+            def finalize(self, result: int) -> int:
+                self.hook_call_count += 1
+                return result
+
+            def eval(self, node: Node[Any]) -> int:
+                match node:
+                    case Const(value=v):
+                        return v
+                    case _:
+                        raise NotImplementedError
+
+        evaluator = CountingEvaluator(Const(value=42))
+
+        evaluator.run(None)
+        assert evaluator.hook_call_count == 1
+
+        evaluator.run(None)
+        assert evaluator.hook_call_count == 2
+
+    def test_finalize_with_complex_program(self) -> None:
+        """Finalize works with programs containing references."""
+
+        class Const(Node[int], tag="const_hook_complex"):
+            value: int
+
+        class Add(Node[int], tag="add_hook_complex"):
+            left: Node[int] | Ref[Node[int]]
+            right: Node[int] | Ref[Node[int]]
+
+        class SummingEvaluator(Interpreter[None, int]):
+            def finalize(self, result: int) -> int:
+                return result * 10  # Scale up the final result
+
+            def eval(self, node: Node[Any]) -> int:
+                match node:
+                    case Const(value=v):
+                        return v
+                    case Add(left=l, right=r):
+                        left_val = self.eval(self.resolve(l))
+                        right_val = self.eval(self.resolve(r))
+                        return left_val + right_val
+                    case _:
+                        raise NotImplementedError
+
+        prog = Program(
+            root=Ref(id="result"),
+            nodes={
+                "five": Const(value=5),
+                "result": Add(left=Ref(id="five"), right=Const(value=3)),
+            },
+        )
+
+        result = SummingEvaluator(prog).run(None)
+        assert result == 80  # (5 + 3) * 10
+
+    def test_finalize_type_transformation(self) -> None:
+        """Finalize can transform from eval type E to a different run type R."""
+
+        class Const(Node[float], tag="const_hook_transform_type"):
+            value: float
+
+        class BinOp(Node[float], tag="binop_hook_transform_type"):
+            op: str
+            left: Node[float] | Ref[Node[float]]
+            right: Node[float] | Ref[Node[float]]
+
+        # E=float, R=str - eval returns float, run returns str
+        class StringifyingCalculator(Interpreter[None, float, str]):
+            def finalize(self, result: float) -> str:
+                return f"Result: {result:.2f}"
+
+            def eval(self, node: Node[Any]) -> float:
+                match node:
+                    case Const(value=v):
+                        return v
+                    case BinOp(op=op, left=l, right=r):
+                        left_val = self.eval(self.resolve(l))
+                        right_val = self.eval(self.resolve(r))
+                        if op == "+":
+                            return left_val + right_val
+                        if op == "*":
+                            return left_val * right_val
+                        msg = f"Unknown op: {op}"
+                        raise ValueError(msg)
+                    case _:
+                        raise NotImplementedError
+
+        expr = BinOp(op="*", left=Const(value=3.0), right=Const(value=4.5))
+        result = StringifyingCalculator(expr).run(None)
+
+        assert result == "Result: 13.50"
+        assert isinstance(result, str)
+
+    def test_finalize_wrapping_type(self) -> None:
+        """Finalize can wrap the result in a custom container type."""
+
+        @dataclass
+        class EvalResult:
+            value: int
+            node_count: int
+
+        class Const(Node[int], tag="const_hook_wrap"):
+            value: int
+
+        class Add(Node[int], tag="add_hook_wrap"):
+            left: Node[int] | Ref[Node[int]]
+            right: Node[int] | Ref[Node[int]]
+
+        # E=int, R=EvalResult
+        class WrappingEvaluator(Interpreter[None, int, EvalResult]):
+            def __init__(self, program: Node[Any] | Program) -> None:
+                super().__init__(program)
+                self.node_count = 0
+
+            def finalize(self, result: int) -> EvalResult:
+                return EvalResult(value=result, node_count=self.node_count)
+
+            def eval(self, node: Node[Any]) -> int:
+                self.node_count += 1
+                match node:
+                    case Const(value=v):
+                        return v
+                    case Add(left=l, right=r):
+                        return self.eval(self.resolve(l)) + self.eval(self.resolve(r))
+                    case _:
+                        raise NotImplementedError
+
+        inner = Add(left=Const(value=2), right=Const(value=3))
+        expr = Add(left=Const(value=1), right=inner)
+        result = WrappingEvaluator(expr).run(None)
+
+        assert isinstance(result, EvalResult)
+        assert result.value == 6  # 1 + (2 + 3)
+        assert result.node_count == 5  # 3 Const + 2 Add nodes
