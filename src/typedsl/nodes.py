@@ -38,6 +38,11 @@ class Node[T]:
 
         Node.registry[cls.tag] = cls
 
+    @classmethod
+    def _clear_registry(cls) -> None:
+        """Clear the registry. For testing only."""
+        cls.registry.clear()
+
 
 type NodeRef[T] = Ref[Node[T]]
 type Child[T] = Node[T] | Ref[Node[T]]

@@ -90,6 +90,7 @@ class TestNodeRegistry:
 
     def test_node_registered_on_definition(self) -> None:
         """Test that nodes are registered when defined."""
+        Node._clear_registry()
 
         class RegisteredNode(Node[int], tag="registered_test"):
             value: int
@@ -99,7 +100,7 @@ class TestNodeRegistry:
 
     def test_multiple_nodes_in_registry(self) -> None:
         """Test that multiple nodes can be registered."""
-        initial_count = len(Node.registry)
+        Node._clear_registry()
 
         class FirstNode(Node[int], tag="first_unique"):
             value: int
@@ -107,12 +108,13 @@ class TestNodeRegistry:
         class SecondNode(Node[str], tag="second_unique"):
             text: str
 
-        assert len(Node.registry) >= initial_count + 2
+        assert len(Node.registry) == 2
         assert "first_unique" in Node.registry
         assert "second_unique" in Node.registry
 
     def test_tag_collision_raises_error(self) -> None:
         """Test that duplicate tags raise an error."""
+        Node._clear_registry()
 
         class FirstNode(Node[int], tag="collision_test"):
             value: int
@@ -124,6 +126,7 @@ class TestNodeRegistry:
 
     def test_same_class_reimport_no_error(self) -> None:
         """Test that re-importing the same class doesn't raise an error."""
+        Node._clear_registry()
 
         class UniqueNode(Node[int], tag="unique_reimport"):
             value: int
@@ -132,6 +135,17 @@ class TestNodeRegistry:
         # This happens when the module is reloaded
         # The check `if existing is not cls` prevents the error
         assert Node.registry["unique_reimport"] is UniqueNode
+
+    def test_clear_registry(self) -> None:
+        """Test that _clear_registry removes all entries."""
+        Node._clear_registry()
+
+        class TempNode(Node[int], tag="temp"):
+            value: int
+
+        assert len(Node.registry) == 1
+        Node._clear_registry()
+        assert len(Node.registry) == 0
 
 
 class TestNodeGenericTypes:
