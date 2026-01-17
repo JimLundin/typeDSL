@@ -436,4 +436,4 @@ See [examples/README.md](examples/README.md) for usage instructions and key patt
 
 ## License
 
-Apache-2.0 / MIT
+Apache-2.0
