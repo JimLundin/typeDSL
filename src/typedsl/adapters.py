@@ -7,6 +7,7 @@ from dataclasses import fields
 from typing import TYPE_CHECKING, Any, TypedDict
 
 from typedsl.nodes import Node, Ref
+from typedsl.schema import node_schema
 from typedsl.types import (
     DictType,
     FrozenSetType,
@@ -86,8 +87,6 @@ class JSONAdapter(FormatAdapter):
         Uses schema information to properly reconstruct types like tuples and sets
         that don't have native JSON representation.
         """
-        from typedsl.schema import node_schema
-
         tag = data["tag"]
         node_cls = Node.registry.get(tag)
         if node_cls is None:
@@ -105,7 +104,8 @@ class JSONAdapter(FormatAdapter):
             field_schema = field_schemas.get(field.name)
             if field_schema is not None:
                 field_values[field.name] = self._deserialize_value_with_type(
-                    data[field.name], field_schema.type
+                    data[field.name],
+                    field_schema.type,
                 )
             else:
                 field_values[field.name] = self._deserialize_value(data[field.name])
