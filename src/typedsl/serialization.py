@@ -36,18 +36,22 @@ def to_dict(obj: Node[Any] | Ref[Any] | TypeDef) -> dict[str, Any]:
     raise ValueError(msg)
 
 
-def from_dict(data: dict[str, Any]) -> Node[Any] | Ref[Any] | TypeDef:
-    """Deserialize object from dictionary.
+def from_dict(data: dict[str, Any]) -> Node[Any] | Ref[Any]:
+    """Deserialize Node or Ref from dictionary.
 
     Args:
         data: Dictionary containing serialized object with 'tag' field
 
     Returns:
-        Deserialized Node, Ref, or TypeDef instance
+        Deserialized Node or Ref instance
 
     Raises:
         KeyError: If required 'tag' field is missing
         ValueError: If tag is not recognized
+
+    Note:
+        TypeDef deserialization is not supported. Node schemas are defined
+        in Python code and serialized for export only.
 
     """
     if "tag" not in data:
@@ -65,20 +69,10 @@ def from_dict(data: dict[str, Any]) -> Node[Any] | Ref[Any] | TypeDef:
     if tag in Node.registry:
         return _adapter.deserialize_node(data)
 
-    if tag in TypeDef.registry:
-        return _adapter.deserialize_typedef(data)
-
     # Provide helpful error with available tags
-    available_node_tags = list(Node.registry.keys())
-    available_typedef_tags = list(TypeDef.registry.keys())
-    node_suffix = "..." if len(available_node_tags) > _MAX_TAGS_IN_ERROR else ""
-    typedef_suffix = "..." if len(available_typedef_tags) > _MAX_TAGS_IN_ERROR else ""
-    n = _MAX_TAGS_IN_ERROR
-    msg = (
-        f"Unknown tag '{tag}'. "
-        f"Available node tags: {available_node_tags[:n]}{node_suffix}. "
-        f"Available typedef tags: {available_typedef_tags[:n]}{typedef_suffix}"
-    )
+    available = list(Node.registry.keys())[:_MAX_TAGS_IN_ERROR]
+    suffix = "..." if len(Node.registry) > _MAX_TAGS_IN_ERROR else ""
+    msg = f"Unknown tag '{tag}'. Available node tags: {available}{suffix}"
     raise ValueError(msg)
 
 
@@ -98,19 +92,23 @@ def to_json(obj: Node[Any] | Ref[Any] | TypeDef) -> str:
     return json.dumps(to_dict(obj), indent=2)
 
 
-def from_json(s: str) -> Node[Any] | Ref[Any] | TypeDef:
-    """Deserialize object from JSON string.
+def from_json(s: str) -> Node[Any] | Ref[Any]:
+    """Deserialize Node or Ref from JSON string.
 
     Args:
         s: JSON string containing serialized object
 
     Returns:
-        Deserialized Node, Ref, or TypeDef instance
+        Deserialized Node or Ref instance
 
     Raises:
         json.JSONDecodeError: If string is not valid JSON
         KeyError: If required fields are missing
         ValueError: If tag is not recognized
+
+    Note:
+        TypeDef deserialization is not supported. Node schemas are defined
+        in Python code and serialized for export only.
 
     """
     return from_dict(json.loads(s))

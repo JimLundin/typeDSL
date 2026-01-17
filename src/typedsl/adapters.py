@@ -58,12 +58,7 @@ class FormatAdapter(ABC):
 
     @abstractmethod
     def serialize_typedef(self, typedef: TypeDef) -> dict[str, Any]:
-        """Serialize a TypeDef to dictionary format."""
-        ...
-
-    @abstractmethod
-    def deserialize_typedef(self, data: dict[str, Any]) -> TypeDef:
-        """Deserialize a dictionary to a TypeDef."""
+        """Serialize a TypeDef to dictionary format (for schema export)."""
         ...
 
     @abstractmethod
@@ -115,32 +110,6 @@ class JSONAdapter(FormatAdapter):
             )
 
         return node_cls(**field_values)
-
-    def deserialize_typedef(self, data: dict[str, Any]) -> TypeDef:
-        """Deserialize a JSON-compatible dictionary to a TypeDef."""
-        tag = data["tag"]
-        typedef_cls = TypeDef.registry.get(tag)
-        if typedef_cls is None:
-            msg = f"Unknown TypeDef tag: {tag}"
-            raise ValueError(msg)
-
-        field_values = {}
-        for field in fields(typedef_cls):
-            if field.name.startswith("_") or field.name not in data:
-                continue
-            raw_value = data[field.name]
-            # TypeDef fields are either primitives, tuples of TypeDefs, or TypeDefs
-            if isinstance(raw_value, dict) and "tag" in raw_value:
-                field_values[field.name] = self.deserialize_typedef(raw_value)
-            elif isinstance(raw_value, list):
-                field_values[field.name] = tuple(
-                    self.deserialize_typedef(item) if isinstance(item, dict) else item
-                    for item in raw_value
-                )
-            else:
-                field_values[field.name] = raw_value
-
-        return typedef_cls(**field_values)
 
     def serialize_typedef(self, typedef: TypeDef) -> dict[str, Any]:
         """Serialize a TypeDef to a JSON-compatible dictionary."""
@@ -195,8 +164,6 @@ class JSONAdapter(FormatAdapter):
                 return Ref(id=value["id"])
             if tag in Node.registry:
                 return self.deserialize_node(value)
-            if tag in TypeDef.registry:
-                return self.deserialize_typedef(value)
             msg = f"Unknown tag: {tag}"
             raise ValueError(msg)
 

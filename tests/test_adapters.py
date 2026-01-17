@@ -342,60 +342,6 @@ class TestJSONAdapterSerializeTypeDef:
         }
 
 
-class TestJSONAdapterDeserializeTypeDef:
-    """Test JSONAdapter.deserialize_typedef() method."""
-
-    def test_deserialize_primitive_typedef(self) -> None:
-        """Test deserializing primitive TypeDef."""
-        adapter = JSONAdapter()
-
-        int_result = adapter.deserialize_typedef({"tag": "int"})
-        assert isinstance(int_result, IntType)
-
-        float_result = adapter.deserialize_typedef({"tag": "float"})
-        assert isinstance(float_result, FloatType)
-
-        str_result = adapter.deserialize_typedef({"tag": "str"})
-        assert isinstance(str_result, StrType)
-
-    def test_deserialize_list_typedef(self) -> None:
-        """Test deserializing ListType."""
-        adapter = JSONAdapter()
-        data = {"tag": "list", "element": {"tag": "int"}}
-        result = adapter.deserialize_typedef(data)
-
-        assert isinstance(result, ListType)
-        assert isinstance(result.element, IntType)
-
-    def test_deserialize_dict_typedef(self) -> None:
-        """Test deserializing DictType."""
-        adapter = JSONAdapter()
-        data = {"tag": "dict", "key": {"tag": "str"}, "value": {"tag": "float"}}
-        result = adapter.deserialize_typedef(data)
-
-        assert isinstance(result, DictType)
-        assert isinstance(result.key, StrType)
-        assert isinstance(result.value, FloatType)
-
-    def test_deserialize_nested_typedef(self) -> None:
-        """Test deserializing nested TypeDef."""
-        adapter = JSONAdapter()
-        data = {"tag": "list", "element": {"tag": "list", "element": {"tag": "int"}}}
-        result = adapter.deserialize_typedef(data)
-
-        assert isinstance(result, ListType)
-        assert isinstance(result.element, ListType)
-        assert isinstance(result.element.element, IntType)
-
-    def test_deserialize_unknown_typedef_tag_raises_error(self) -> None:
-        """Test that unknown TypeDef tag raises ValueError."""
-        adapter = JSONAdapter()
-        data = {"tag": "nonexistent_type_tag"}
-
-        with pytest.raises(ValueError, match="Unknown TypeDef tag"):
-            adapter.deserialize_typedef(data)
-
-
 class TestJSONAdapterSerializeNodeSchema:
     """Test JSONAdapter.serialize_node_schema() method."""
 
@@ -500,16 +446,6 @@ class TestJSONAdapterRoundTrip:
 
         serialized = adapter.serialize_node(original)
         deserialized = adapter.deserialize_node(serialized)
-
-        assert deserialized == original
-
-    def test_typedef_round_trip(self) -> None:
-        """Test TypeDef round-trip."""
-        adapter = JSONAdapter()
-        original = DictType(key=StrType(), value=ListType(element=IntType()))
-
-        serialized = adapter.serialize_typedef(original)
-        deserialized = adapter.deserialize_typedef(serialized)
 
         assert deserialized == original
 
@@ -962,32 +898,3 @@ class TestJSONAdapterSerializeTypeDefTupleSet:
         result = adapter.serialize_typedef(frozenset_type)
 
         assert result == {"tag": "frozenset", "element": {"tag": "str"}}
-
-    def test_deserialize_tuple_typedef(self) -> None:
-        """Test deserializing TupleType."""
-        adapter = JSONAdapter()
-        data = {"tag": "tuple", "elements": [{"tag": "int"}, {"tag": "str"}]}
-        result = adapter.deserialize_typedef(data)
-
-        assert isinstance(result, TupleType)
-        assert len(result.elements) == 2
-        assert isinstance(result.elements[0], IntType)
-        assert isinstance(result.elements[1], StrType)
-
-    def test_deserialize_set_typedef(self) -> None:
-        """Test deserializing SetType."""
-        adapter = JSONAdapter()
-        data = {"tag": "set", "element": {"tag": "int"}}
-        result = adapter.deserialize_typedef(data)
-
-        assert isinstance(result, SetType)
-        assert isinstance(result.element, IntType)
-
-    def test_deserialize_frozenset_typedef(self) -> None:
-        """Test deserializing FrozenSetType."""
-        adapter = JSONAdapter()
-        data = {"tag": "frozenset", "element": {"tag": "str"}}
-        result = adapter.deserialize_typedef(data)
-
-        assert isinstance(result, FrozenSetType)
-        assert isinstance(result.element, StrType)
