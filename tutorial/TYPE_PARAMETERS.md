@@ -128,7 +128,7 @@ Each type parameter has a clear role.
 Here's a type-safe filter (2 nodes):
 
 ```python
-from typedsl import Node, Ref, AST, Interpreter
+from typedsl import Node, Ref, Program, Interpreter
 
 class Value[T](Node[T]):
     """A value of type T."""
@@ -140,8 +140,8 @@ class Filter[T](Node[list[T]]):
     keep: callable[[T], bool]
 
 # Use it
-ast = AST(
-    root="result",
+prog = Program(
+    root=Ref(id="result"),
     nodes={
         "one": Value[int](data=1),
         "two": Value[int](data=2),
@@ -163,7 +163,7 @@ class Eval(Interpreter[None, Any]):
                 values = [self.eval(self.resolve(ref)) for ref in items]
                 return [v for v in values if predicate(v)]
 
-result = Eval(ast, None).run()  # Returns [2, 3]
+result = Eval(prog).run(None)  # Returns [2, 3]
 ```
 
 The type parameter ensures you can't accidentally filter `list[int]` with a `str` predicate.

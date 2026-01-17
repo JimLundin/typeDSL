@@ -60,13 +60,13 @@ class Calculator(Interpreter[dict[str, float], float]):
             # ... more cases
 ```
 
-### Pattern 3: Build and Evaluate AST
+### Pattern 3: Build and Evaluate Program
 
 ```python
-from typedsl import AST, Ref
+from typedsl import Program, Ref
 
-ast = AST(
-    root="result",
+prog = Program(
+    root=Ref(id="result"),
     nodes={
         "x": Const(value=3.0),
         "y": Const(value=4.0),
@@ -74,12 +74,11 @@ ast = AST(
     }
 )
 
-calculator = Calculator(ast, {})
-result = calculator.run()  # Returns 7.0
+calculator = Calculator(prog)
+result = calculator.run({})  # Returns 7.0
 ```
 
 ## Further Reading
 
 - [Main README](../README.md) - Package overview
-- [DESIGN.md](../DESIGN.md) - Detailed design documentation
 - [Tests](../tests/) - Additional usage examples

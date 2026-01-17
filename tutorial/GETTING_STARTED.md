@@ -39,7 +39,7 @@ class Add(Node[int]):
 
 That's it. Three things happened automatically:
 - ✓ Classes became frozen dataclasses (immutable)
-- ✓ Classes registered with tags `"number"` and `"add"`
+- ✓ Classes registered with tags `"Number"` and `"Add"`
 - ✓ Ready for serialization
 
 Build a tree:
@@ -87,8 +87,8 @@ class Calculator(Interpreter[None, int]):
                 return self.eval(l) + self.eval(r)
 
 # Use it
-calc = Calculator(None, None)
-result = calc.eval(expr)  # Returns 8
+calc = Calculator(expr)
+result = calc.run(None)  # Returns 8
 ```
 
 The pattern matching syntax makes it clean - each node type gets its own case.
@@ -98,15 +98,15 @@ The pattern matching syntax makes it clean - each node type gets its own case.
 For shared nodes, use `Ref`:
 
 ```python
-from typedsl import Ref, AST
+from typedsl import Ref, Program
 
 class Add(Node[int]):
     left: Ref[Node[int]]   # Reference, not inline
     right: Ref[Node[int]]
 
 # Build: (x + 5) * (x + 5) where x is shared
-ast = AST(
-    root="result",
+prog = Program(
+    root=Ref(id="result"),
     nodes={
         "x": Number(value=3),
         "five": Number(value=5),
@@ -135,17 +135,17 @@ class Calculator(Interpreter[None, int]):
 
 ### 5. Serialization Preserves Everything
 
-Save and load ASTs as JSON:
+Save and load programs as JSON:
 
 ```python
 # Save
-json_str = ast.to_json()
+json_str = prog.to_json()
 
 # Load
-restored = AST.from_json(json_str)
+restored = Program.from_json(json_str)
 
 # Evaluate
-result = Calculator(restored, None).run()
+result = Calculator(restored).run(None)
 ```
 
 The structure, types, and references are all preserved.
@@ -159,10 +159,10 @@ The structure, types, and references are all preserved.
 | `Node[T]` | Always - base building block |
 | `Node[T]` fields | Simple trees, no sharing |
 | `Ref[Node[T]]` fields | Shared nodes, DAGs, explicit IDs |
-| `AST` container | Using references |
+| `Program` container | Using references |
 | `Interpreter[Ctx, R]` | Evaluating, validating, transforming |
 | Type parameters `[T]` | Node works with multiple types |
-| Serialization | Saving, loading, transmitting ASTs |
+| Serialization | Saving, loading, transmitting programs |
 
 ---
 
@@ -171,7 +171,7 @@ The structure, types, and references are all preserved.
 Here's everything together (just 3 node types):
 
 ```python
-from typedsl import Node, Ref, AST, Interpreter
+from typedsl import Node, Ref, Program, Interpreter
 from typing import Literal
 
 # 1. Define nodes
@@ -194,9 +194,9 @@ class Calc(Interpreter[None, int]):
             case BinOp(op="*", left=l, right=r):
                 return self.eval(self.resolve(l)) * self.eval(self.resolve(r))
 
-# 3. Build AST: (3 + 5) * 2
-ast = AST(
-    root="result",
+# 3. Build program: (3 + 5) * 2
+prog = Program(
+    root=Ref(id="result"),
     nodes={
         "three": Num(value=3),
         "five": Num(value=5),
@@ -207,8 +207,8 @@ ast = AST(
 )
 
 # 4. Evaluate
-calc = Calc(ast, None)
-result = calc.run()  # Returns 16
+calc = Calc(prog)
+result = calc.run(None)  # Returns 16
 ```
 
 That's the complete flow: define → build → interpret.
@@ -218,7 +218,6 @@ That's the complete flow: define → build → interpret.
 ## Next Steps
 
 - **[Examples](../examples/)**: See `01_calculator.py` and `02_adapting_existing_ast.py`
-- **[DESIGN.md](../DESIGN.md)**: Understand the architecture
 - **[API Reference](../README.md#api-reference)**: Complete API documentation
 
 Start building your own DSL by:
