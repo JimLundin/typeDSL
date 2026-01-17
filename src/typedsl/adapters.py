@@ -12,6 +12,10 @@ from typedsl.types import (
     DictType,
     FrozenSetType,
     ListType,
+    MappingType,
+    RefType,
+    ReturnType,
+    SequenceType,
     SetType,
     TupleType,
     TypeDef,
@@ -69,7 +73,11 @@ class FormatAdapter(ABC):
 
 
 class JSONAdapter(FormatAdapter):
-    """JSON serialization adapter."""
+    """JSON serialization adapter.
+
+    Uses schema type information to properly serialize and deserialize
+    Python types that don't have native JSON representation (tuples, sets, etc.).
+    """
 
     def serialize_node(self, node: Node[Any]) -> dict[str, Any]:
         """Serialize a Node to a JSON-compatible dictionary."""
@@ -93,7 +101,6 @@ class JSONAdapter(FormatAdapter):
             msg = f"Unknown node tag: {tag}"
             raise ValueError(msg)
 
-        # Get schema for type-aware deserialization
         schema = node_schema(node_cls)
         field_schemas: dict[str, FieldSchema] = {f.name: f for f in schema.fields}
 
@@ -101,14 +108,11 @@ class JSONAdapter(FormatAdapter):
         for field in fields(node_cls):
             if field.name.startswith("_") or field.name not in data:
                 continue
-            field_schema = field_schemas.get(field.name)
-            if field_schema is not None:
-                field_values[field.name] = self._deserialize_value_with_type(
-                    data[field.name],
-                    field_schema.type,
-                )
-            else:
-                field_values[field.name] = self._deserialize_value(data[field.name])
+            field_schema = field_schemas[field.name]
+            field_values[field.name] = self._deserialize_value(
+                data[field.name],
+                field_schema.type,
+            )
 
         return node_cls(**field_values)
 
@@ -120,11 +124,22 @@ class JSONAdapter(FormatAdapter):
             msg = f"Unknown TypeDef tag: {tag}"
             raise ValueError(msg)
 
-        field_values = {
-            field.name: self._deserialize_value(data[field.name])
-            for field in fields(typedef_cls)
-            if not field.name.startswith("_") and field.name in data
-        }
+        field_values = {}
+        for field in fields(typedef_cls):
+            if field.name.startswith("_") or field.name not in data:
+                continue
+            raw_value = data[field.name]
+            # TypeDef fields are either primitives, tuples of TypeDefs, or TypeDefs
+            if isinstance(raw_value, dict) and "tag" in raw_value:
+                field_values[field.name] = self.deserialize_typedef(raw_value)
+            elif isinstance(raw_value, list):
+                field_values[field.name] = tuple(
+                    self.deserialize_typedef(item) if isinstance(item, dict) else item
+                    for item in raw_value
+                )
+            else:
+                field_values[field.name] = raw_value
+
         return typedef_cls(**field_values)
 
     def serialize_typedef(self, typedef: TypeDef) -> dict[str, Any]:
@@ -151,6 +166,7 @@ class JSONAdapter(FormatAdapter):
         }
 
     def _serialize_value(self, value: Any) -> Any:
+        """Serialize a Python value to JSON-compatible format."""
         if isinstance(value, Node):
             return self.serialize_node(value)
         if isinstance(value, Ref):
@@ -163,35 +179,16 @@ class JSONAdapter(FormatAdapter):
             return {k: self._serialize_value(v) for k, v in value.items()}
         return value
 
-    def _deserialize_value(self, value: Any) -> Any:
-        if isinstance(value, dict) and "tag" in value:
-            tag = value["tag"]
-            if tag == "ref":
-                return Ref(id=value["id"])
-            if tag in Node.registry:
-                return self.deserialize_node(value)
-            if tag in TypeDef.registry:
-                return self.deserialize_typedef(value)
-            msg = f"Unknown tag: {tag}"
-            raise ValueError(msg)
-        if isinstance(value, list):
-            return [self._deserialize_value(item) for item in value]
-        if isinstance(value, dict):
-            return {k: self._deserialize_value(v) for k, v in value.items()}
-        return value
+    def _deserialize_value(self, value: Any, typedef: TypeDef) -> Any:
+        """Deserialize a JSON value using schema type information.
 
-    def _deserialize_value_with_type(self, value: Any, typedef: TypeDef) -> Any:
-        """Deserialize a value using schema type information.
-
-        This enables proper reconstruction of types like tuples and sets
-        that are serialized as JSON arrays but need to be restored to
-        their original Python types.
+        Uses the TypeDef to determine how to reconstruct Python types
+        that don't have native JSON representation (tuples, sets, etc.).
         """
-        # Handle None values
         if value is None:
             return None
 
-        # Handle tagged objects (nodes, refs, typedefs)
+        # Tagged objects (nodes, refs)
         if isinstance(value, dict) and "tag" in value:
             tag = value["tag"]
             if tag == "ref":
@@ -203,58 +200,91 @@ class JSONAdapter(FormatAdapter):
             msg = f"Unknown tag: {tag}"
             raise ValueError(msg)
 
-        # Handle tuple type - convert list to tuple
+        # Tuple - convert list to tuple with per-element types
         if isinstance(typedef, TupleType) and isinstance(value, list):
             elements = typedef.elements
-            if len(value) != len(elements):
-                # Variable-length tuple or mismatch - just convert to tuple
-                return tuple(self._deserialize_value(item) for item in value)
-            # Deserialize each element with its specific type
             return tuple(
-                self._deserialize_value_with_type(item, elem_type)
+                self._deserialize_value(item, elem_type)
                 for item, elem_type in zip(value, elements, strict=True)
             )
 
-        # Handle set type - convert list to set
+        # Set - convert list to set
         if isinstance(typedef, SetType) and isinstance(value, list):
-            return {
-                self._deserialize_value_with_type(item, typedef.element)
-                for item in value
-            }
+            return {self._deserialize_value(item, typedef.element) for item in value}
 
-        # Handle frozenset type - convert list to frozenset
+        # FrozenSet - convert list to frozenset
         if isinstance(typedef, FrozenSetType) and isinstance(value, list):
             return frozenset(
-                self._deserialize_value_with_type(item, typedef.element)
-                for item in value
+                self._deserialize_value(item, typedef.element) for item in value
             )
 
-        # Handle list type - recursively deserialize elements
+        # List - recursively deserialize elements
         if isinstance(typedef, ListType) and isinstance(value, list):
-            return [
-                self._deserialize_value_with_type(item, typedef.element)
-                for item in value
-            ]
+            return [self._deserialize_value(item, typedef.element) for item in value]
 
-        # Handle dict type - recursively deserialize values
+        # Sequence (abstract) - deserialize as list
+        if isinstance(typedef, SequenceType) and isinstance(value, list):
+            return [self._deserialize_value(item, typedef.element) for item in value]
+
+        # Dict - recursively deserialize values
         if isinstance(typedef, DictType) and isinstance(value, dict):
             return {
-                k: self._deserialize_value_with_type(v, typedef.value)
-                for k, v in value.items()
+                k: self._deserialize_value(v, typedef.value) for k, v in value.items()
             }
 
-        # Handle union type - try each option
-        if isinstance(typedef, UnionType) and isinstance(value, list):
-            # For unions, we need to check if any option is a tuple/set/frozenset
-            for option in typedef.options:
-                if isinstance(option, TupleType | SetType | FrozenSetType):
-                    return self._deserialize_value_with_type(value, option)
-            # No special handling needed, fall through to default
-            return [self._deserialize_value(item) for item in value]
+        # Mapping (abstract) - deserialize as dict
+        if isinstance(typedef, MappingType) and isinstance(value, dict):
+            return {
+                k: self._deserialize_value(v, typedef.value) for k, v in value.items()
+            }
 
-        # Default handling for non-list values or unrecognized types
+        # Union - find matching type for the value
+        if isinstance(typedef, UnionType):
+            return self._deserialize_union_value(value, typedef)
+
+        # RefType - the value should be a tagged ref dict
+        if isinstance(typedef, RefType):
+            if isinstance(value, dict) and value.get("tag") == "ref":
+                return Ref(id=value["id"])
+            return value
+
+        # ReturnType - unwrap and deserialize the inner type
+        if isinstance(typedef, ReturnType):
+            return self._deserialize_value(value, typedef.returns)
+
+        # Primitives and unknown types - return as-is
+        return value
+
+    def _deserialize_union_value(self, value: Any, typedef: UnionType) -> Any:
+        """Deserialize a value that could be one of several union types."""
+        # For lists, check if any option expects a tuple/set/frozenset/list
         if isinstance(value, list):
-            return [self._deserialize_value(item) for item in value]
-        if isinstance(value, dict):
-            return {k: self._deserialize_value(v) for k, v in value.items()}
+            for option in typedef.options:
+                if isinstance(option, TupleType):
+                    if len(value) == len(option.elements):
+                        return self._deserialize_value(value, option)
+                elif isinstance(
+                    option,
+                    SetType | FrozenSetType | ListType | SequenceType,
+                ):
+                    return self._deserialize_value(value, option)
+            # Default to list if no specific match
+            return value
+
+        # For dicts, check if any option expects a dict type
+        if isinstance(value, dict) and "tag" not in value:
+            for option in typedef.options:
+                if isinstance(option, DictType | MappingType):
+                    return self._deserialize_value(value, option)
+            return value
+
+        # For tagged values, let the normal flow handle it
+        if isinstance(value, dict) and "tag" in value:
+            tag = value["tag"]
+            if tag == "ref":
+                return Ref(id=value["id"])
+            if tag in Node.registry:
+                return self.deserialize_node(value)
+
+        # Primitives - return as-is
         return value

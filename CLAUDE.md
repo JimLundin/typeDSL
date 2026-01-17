@@ -17,6 +17,24 @@ uv run pytest tests/       # Run tests
 
 All three must pass before pushing changes.
 
+## Beta Status - No Backwards Compatibility
+
+This library is in beta. Do not maintain backwards compatibility:
+
+- Remove deprecated code entirely, don't add shims or compatibility layers
+- Refactor freely when improving the design
+- No need to preserve old APIs or behaviors
+
+## Serialization Architecture
+
+Serialization uses **schema-aware type reconstruction**:
+
+- The schema system extracts Python type hints into `TypeDef` objects at runtime
+- During deserialization, `TypeDef` information guides type reconstruction
+- Types without native JSON representation (tuples, sets, frozensets) serialize as arrays
+- The schema tells us what Python type to reconstruct from JSON arrays
+- All deserialization goes through `_deserialize_value(value, typedef)` - no fallback to untyped deserialization
+
 ## Project Structure
 
 - `src/typedsl/` - Core source code
