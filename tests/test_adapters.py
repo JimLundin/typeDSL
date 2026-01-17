@@ -9,12 +9,15 @@ from typedsl.types import (
     BoolType,
     DictType,
     FloatType,
+    FrozenSetType,
     IntType,
     ListType,
     NodeType,
     RefType,
     ReturnType,
+    SetType,
     StrType,
+    TupleType,
     UnionType,
 )
 
@@ -633,3 +636,358 @@ class TestJSONAdapterEdgeCases:
         assert isinstance(result.float_val, float)
         assert isinstance(result.bool_val, bool)
         assert isinstance(result.str_val, str)
+
+
+class TestJSONAdapterTupleSupport:
+    """Test JSONAdapter support for tuple serialization and deserialization."""
+
+    def test_serialize_node_with_tuple_field(self) -> None:
+        """Test serializing node with tuple field."""
+
+        class PointNode(Node[tuple[int, int]], tag="point_tuple"):
+            coords: tuple[int, int]
+
+        adapter = JSONAdapter()
+        node = PointNode(coords=(10, 20))
+        result = adapter.serialize_node(node)
+
+        assert result == {"tag": "point_tuple", "coords": [10, 20]}
+
+    def test_deserialize_node_with_tuple_field(self) -> None:
+        """Test deserializing node with tuple field - JSON array becomes tuple."""
+
+        class PointNode(Node[tuple[int, int]], tag="point_tuple_deser"):
+            coords: tuple[int, int]
+
+        adapter = JSONAdapter()
+        data = {"tag": "point_tuple_deser", "coords": [10, 20]}
+        result = adapter.deserialize_node(data)
+
+        assert isinstance(result, PointNode)
+        assert isinstance(result.coords, tuple)
+        assert result.coords == (10, 20)
+
+    def test_tuple_round_trip(self) -> None:
+        """Test round-trip for node with tuple field."""
+
+        class CoordNode(Node[tuple[int, int, int]], tag="coord_tuple_rt"):
+            position: tuple[int, int, int]
+
+        adapter = JSONAdapter()
+        original = CoordNode(position=(1, 2, 3))
+
+        serialized = adapter.serialize_node(original)
+        deserialized = adapter.deserialize_node(serialized)
+
+        assert deserialized == original
+        assert isinstance(deserialized.position, tuple)
+
+    def test_tuple_with_nested_nodes(self) -> None:
+        """Test tuple containing nodes."""
+
+        class Value(Node[int], tag="value_in_tuple"):
+            num: int
+
+        class PairNode(Node[tuple[int, int]], tag="pair_with_nodes"):
+            items: tuple[Node[int], Node[int]]
+
+        adapter = JSONAdapter()
+        original = PairNode(items=(Value(num=1), Value(num=2)))
+
+        serialized = adapter.serialize_node(original)
+        assert serialized["items"] == [
+            {"tag": "value_in_tuple", "num": 1},
+            {"tag": "value_in_tuple", "num": 2},
+        ]
+
+        deserialized = adapter.deserialize_node(serialized)
+        assert isinstance(deserialized.items, tuple)
+        assert len(deserialized.items) == 2
+        assert deserialized.items[0].num == 1
+        assert deserialized.items[1].num == 2
+
+    def test_heterogeneous_tuple(self) -> None:
+        """Test tuple with different element types."""
+
+        class MixedNode(Node[tuple[int, str, float]], tag="mixed_tuple"):
+            data: tuple[int, str, float]
+
+        adapter = JSONAdapter()
+        original = MixedNode(data=(42, "hello", 3.14))
+
+        serialized = adapter.serialize_node(original)
+        deserialized = adapter.deserialize_node(serialized)
+
+        assert deserialized == original
+        assert isinstance(deserialized.data, tuple)
+        assert deserialized.data == (42, "hello", 3.14)
+
+    def test_nested_tuple(self) -> None:
+        """Test nested tuple structure."""
+
+        class NestedTupleNode(Node[tuple[tuple[int, int], str]], tag="nested_tuple"):
+            data: tuple[tuple[int, int], str]
+
+        adapter = JSONAdapter()
+        original = NestedTupleNode(data=((1, 2), "test"))
+
+        serialized = adapter.serialize_node(original)
+        assert serialized["data"] == [[1, 2], "test"]
+
+        deserialized = adapter.deserialize_node(serialized)
+        assert isinstance(deserialized.data, tuple)
+        assert isinstance(deserialized.data[0], tuple)
+        assert deserialized.data == ((1, 2), "test")
+
+
+class TestJSONAdapterSetSupport:
+    """Test JSONAdapter support for set serialization and deserialization."""
+
+    def test_serialize_node_with_set_field(self) -> None:
+        """Test serializing node with set field."""
+
+        class TagsNode(Node[set[str]], tag="tags_set"):
+            tags: set[str]
+
+        adapter = JSONAdapter()
+        node = TagsNode(tags={"a", "b", "c"})
+        result = adapter.serialize_node(node)
+
+        assert result["tag"] == "tags_set"
+        # Sets become lists, order not guaranteed
+        assert set(result["tags"]) == {"a", "b", "c"}
+
+    def test_deserialize_node_with_set_field(self) -> None:
+        """Test deserializing node with set field - JSON array becomes set."""
+
+        class TagsNode(Node[set[str]], tag="tags_set_deser"):
+            tags: set[str]
+
+        adapter = JSONAdapter()
+        data = {"tag": "tags_set_deser", "tags": ["x", "y", "z"]}
+        result = adapter.deserialize_node(data)
+
+        assert isinstance(result, TagsNode)
+        assert isinstance(result.tags, set)
+        assert result.tags == {"x", "y", "z"}
+
+    def test_set_round_trip(self) -> None:
+        """Test round-trip for node with set field."""
+
+        class NumbersNode(Node[set[int]], tag="numbers_set_rt"):
+            values: set[int]
+
+        adapter = JSONAdapter()
+        original = NumbersNode(values={1, 2, 3, 4, 5})
+
+        serialized = adapter.serialize_node(original)
+        deserialized = adapter.deserialize_node(serialized)
+
+        assert deserialized == original
+        assert isinstance(deserialized.values, set)
+
+    def test_set_deduplication(self) -> None:
+        """Test that deserializing a list with duplicates into a set deduplicates."""
+
+        class UniqueNode(Node[set[int]], tag="unique_set"):
+            items: set[int]
+
+        adapter = JSONAdapter()
+        # JSON with duplicates
+        data = {"tag": "unique_set", "items": [1, 2, 2, 3, 3, 3]}
+        result = adapter.deserialize_node(data)
+
+        assert isinstance(result.items, set)
+        assert result.items == {1, 2, 3}
+
+    def test_empty_set(self) -> None:
+        """Test empty set serialization and deserialization."""
+
+        class EmptySetNode(Node[set[int]], tag="empty_set"):
+            items: set[int]
+
+        adapter = JSONAdapter()
+        original = EmptySetNode(items=set())
+
+        serialized = adapter.serialize_node(original)
+        assert serialized["items"] == []
+
+        deserialized = adapter.deserialize_node(serialized)
+        assert isinstance(deserialized.items, set)
+        assert deserialized.items == set()
+
+
+class TestJSONAdapterFrozenSetSupport:
+    """Test JSONAdapter support for frozenset serialization and deserialization."""
+
+    def test_serialize_node_with_frozenset_field(self) -> None:
+        """Test serializing node with frozenset field."""
+
+        class ImmutableTagsNode(Node[frozenset[str]], tag="frozen_tags"):
+            tags: frozenset[str]
+
+        adapter = JSONAdapter()
+        node = ImmutableTagsNode(tags=frozenset(["a", "b", "c"]))
+        result = adapter.serialize_node(node)
+
+        assert result["tag"] == "frozen_tags"
+        assert set(result["tags"]) == {"a", "b", "c"}
+
+    def test_deserialize_node_with_frozenset_field(self) -> None:
+        """Test deserializing node with frozenset field."""
+
+        class ImmutableTagsNode(Node[frozenset[str]], tag="frozen_tags_deser"):
+            tags: frozenset[str]
+
+        adapter = JSONAdapter()
+        data = {"tag": "frozen_tags_deser", "tags": ["x", "y", "z"]}
+        result = adapter.deserialize_node(data)
+
+        assert isinstance(result, ImmutableTagsNode)
+        assert isinstance(result.tags, frozenset)
+        assert result.tags == frozenset(["x", "y", "z"])
+
+    def test_frozenset_round_trip(self) -> None:
+        """Test round-trip for node with frozenset field."""
+
+        class FrozenNumbersNode(Node[frozenset[int]], tag="frozen_numbers_rt"):
+            values: frozenset[int]
+
+        adapter = JSONAdapter()
+        original = FrozenNumbersNode(values=frozenset([1, 2, 3]))
+
+        serialized = adapter.serialize_node(original)
+        deserialized = adapter.deserialize_node(serialized)
+
+        assert deserialized == original
+        assert isinstance(deserialized.values, frozenset)
+
+
+class TestJSONAdapterComplexTypeRoundTrip:
+    """Test round-trip for complex nested types with tuples and sets."""
+
+    def test_list_of_tuples(self) -> None:
+        """Test list containing tuples."""
+
+        class PointsNode(Node[list[tuple[int, int]]], tag="points_list"):
+            points: list[tuple[int, int]]
+
+        adapter = JSONAdapter()
+        original = PointsNode(points=[(1, 2), (3, 4), (5, 6)])
+
+        serialized = adapter.serialize_node(original)
+        deserialized = adapter.deserialize_node(serialized)
+
+        assert deserialized == original
+        assert isinstance(deserialized.points, list)
+        assert all(isinstance(p, tuple) for p in deserialized.points)
+
+    def test_tuple_of_sets(self) -> None:
+        """Test tuple containing sets."""
+
+        class SetPairNode(Node[tuple[set[int], set[str]]], tag="set_pair"):
+            pair: tuple[set[int], set[str]]
+
+        adapter = JSONAdapter()
+        original = SetPairNode(pair=({1, 2, 3}, {"a", "b"}))
+
+        serialized = adapter.serialize_node(original)
+        deserialized = adapter.deserialize_node(serialized)
+
+        assert deserialized == original
+        assert isinstance(deserialized.pair, tuple)
+        assert isinstance(deserialized.pair[0], set)
+        assert isinstance(deserialized.pair[1], set)
+
+    def test_dict_with_tuple_values(self) -> None:
+        """Test dict containing tuple values."""
+
+        class RangesNode(Node[dict[str, tuple[int, int]]], tag="ranges_dict"):
+            ranges: dict[str, tuple[int, int]]
+
+        adapter = JSONAdapter()
+        original = RangesNode(ranges={"x": (0, 10), "y": (5, 15)})
+
+        serialized = adapter.serialize_node(original)
+        deserialized = adapter.deserialize_node(serialized)
+
+        assert deserialized == original
+        assert all(isinstance(v, tuple) for v in deserialized.ranges.values())
+
+    def test_set_with_nested_frozenset(self) -> None:
+        """Test set containing frozensets (set of sets pattern)."""
+
+        class SetOfSetsNode(Node[set[frozenset[int]]], tag="set_of_sets"):
+            groups: set[frozenset[int]]
+
+        adapter = JSONAdapter()
+        original = SetOfSetsNode(
+            groups={frozenset([1, 2]), frozenset([3, 4]), frozenset([5])}
+        )
+
+        serialized = adapter.serialize_node(original)
+        deserialized = adapter.deserialize_node(serialized)
+
+        assert deserialized == original
+        assert isinstance(deserialized.groups, set)
+        assert all(isinstance(g, frozenset) for g in deserialized.groups)
+
+
+class TestJSONAdapterSerializeTypeDefTupleSet:
+    """Test JSONAdapter serialization of TupleType and SetType."""
+
+    def test_serialize_tuple_typedef(self) -> None:
+        """Test serializing TupleType."""
+        adapter = JSONAdapter()
+        tuple_type = TupleType(elements=(IntType(), StrType()))
+        result = adapter.serialize_typedef(tuple_type)
+
+        assert result == {
+            "tag": "tuple",
+            "elements": [{"tag": "int"}, {"tag": "str"}],
+        }
+
+    def test_serialize_set_typedef(self) -> None:
+        """Test serializing SetType."""
+        adapter = JSONAdapter()
+        set_type = SetType(element=IntType())
+        result = adapter.serialize_typedef(set_type)
+
+        assert result == {"tag": "set", "element": {"tag": "int"}}
+
+    def test_serialize_frozenset_typedef(self) -> None:
+        """Test serializing FrozenSetType."""
+        adapter = JSONAdapter()
+        frozenset_type = FrozenSetType(element=StrType())
+        result = adapter.serialize_typedef(frozenset_type)
+
+        assert result == {"tag": "frozenset", "element": {"tag": "str"}}
+
+    def test_deserialize_tuple_typedef(self) -> None:
+        """Test deserializing TupleType."""
+        adapter = JSONAdapter()
+        data = {"tag": "tuple", "elements": [{"tag": "int"}, {"tag": "str"}]}
+        result = adapter.deserialize_typedef(data)
+
+        assert isinstance(result, TupleType)
+        assert len(result.elements) == 2
+        assert isinstance(result.elements[0], IntType)
+        assert isinstance(result.elements[1], StrType)
+
+    def test_deserialize_set_typedef(self) -> None:
+        """Test deserializing SetType."""
+        adapter = JSONAdapter()
+        data = {"tag": "set", "element": {"tag": "int"}}
+        result = adapter.deserialize_typedef(data)
+
+        assert isinstance(result, SetType)
+        assert isinstance(result.element, IntType)
+
+    def test_deserialize_frozenset_typedef(self) -> None:
+        """Test deserializing FrozenSetType."""
+        adapter = JSONAdapter()
+        data = {"tag": "frozenset", "element": {"tag": "str"}}
+        result = adapter.deserialize_typedef(data)
+
+        assert isinstance(result, FrozenSetType)
+        assert isinstance(result.element, StrType)
