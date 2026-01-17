@@ -219,21 +219,6 @@ class TestFromDict:
         assert isinstance(result, Ref)
         assert result.id == "my-node-id"
 
-    def test_typedef_from_dict(self) -> None:
-        """Test deserializing TypeDef from dict."""
-        data = {"tag": "int"}
-        result = from_dict(data)
-
-        assert isinstance(result, IntType)
-
-    def test_complex_typedef_from_dict(self) -> None:
-        """Test deserializing complex TypeDef."""
-        data = {"tag": "list", "element": {"tag": "float"}}
-        result = from_dict(data)
-
-        assert isinstance(result, ListType)
-        assert isinstance(result.element, FloatType)
-
     def test_unknown_tag_raises_error(self) -> None:
         """Test that unknown tag raises ValueError."""
         data = {"tag": "nonexistent_tag_xyz"}
@@ -256,7 +241,7 @@ class TestFromDict:
             from_dict(data)
 
     def test_unknown_tag_lists_available_tags(self) -> None:
-        """Test that unknown tag error lists available tags."""
+        """Test that unknown tag error lists available node tags."""
         data = {"tag": "completely_unknown_tag_xyz"}
 
         with pytest.raises(ValueError, match="Unknown tag") as exc_info:
@@ -265,9 +250,8 @@ class TestFromDict:
         error_msg = str(exc_info.value)
         # Should mention the unknown tag
         assert "completely_unknown_tag_xyz" in error_msg
-        # Should list available tags
+        # Should list available node tags
         assert "Available node tags" in error_msg
-        assert "Available typedef tags" in error_msg
 
 
 class TestRoundTripSerialization:
@@ -304,14 +288,6 @@ class TestRoundTripSerialization:
     def test_ref_round_trip(self) -> None:
         """Test round-trip for Ref."""
         original = Ref[Node[str]](id="test-ref-id")
-        serialized = to_dict(original)
-        deserialized = from_dict(serialized)
-
-        assert deserialized == original
-
-    def test_typedef_round_trip(self) -> None:
-        """Test round-trip for TypeDef."""
-        original = ListType(element=IntType())
         serialized = to_dict(original)
         deserialized = from_dict(serialized)
 
@@ -478,14 +454,6 @@ class TestJsonRoundTrip:
             right=Expr(operation="mul", left=Const(value=2.0), right=Const(value=3.0)),
         )
 
-        json_str = to_json(original)
-        deserialized = from_json(json_str)
-
-        assert deserialized == original
-
-    def test_typedef_json_round_trip(self) -> None:
-        """Test JSON round-trip for TypeDef."""
-        original = IntType()
         json_str = to_json(original)
         deserialized = from_json(json_str)
 
