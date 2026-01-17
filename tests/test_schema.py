@@ -26,8 +26,10 @@ from typedsl.types import (
     NoneType,
     ReturnType,
     SequenceType,
+    SetType,
     StrType,
     TimeType,
+    TupleType,
     TypeParameter,
     UnionType,
 )
@@ -269,6 +271,85 @@ class TestExtractGenericContainers:
         result = extract_type(frozenset[str])
         assert isinstance(result, FrozenSetType)
         assert isinstance(result.element, StrType)
+
+    def test_extract_set_int(self) -> None:
+        """Test extracting set[int]."""
+        result = extract_type(set[int])
+        assert isinstance(result, SetType)
+        assert isinstance(result.element, IntType)
+
+    def test_extract_set_str(self) -> None:
+        """Test extracting set[str]."""
+        result = extract_type(set[str])
+        assert isinstance(result, SetType)
+        assert isinstance(result.element, StrType)
+
+    def test_extract_nested_set(self) -> None:
+        """Test extracting set of frozensets (nested set containers)."""
+        result = extract_type(set[frozenset[int]])
+        assert isinstance(result, SetType)
+        assert isinstance(result.element, FrozenSetType)
+        assert isinstance(result.element.element, IntType)
+
+
+class TestExtractTuples:
+    """Test extracting tuple types."""
+
+    def test_extract_tuple_two_elements(self) -> None:
+        """Test extracting tuple[int, str]."""
+        result = extract_type(tuple[int, str])
+        assert isinstance(result, TupleType)
+        assert len(result.elements) == 2
+        assert isinstance(result.elements[0], IntType)
+        assert isinstance(result.elements[1], StrType)
+
+    def test_extract_tuple_three_elements(self) -> None:
+        """Test extracting tuple[int, str, float]."""
+        result = extract_type(tuple[int, str, float])
+        assert isinstance(result, TupleType)
+        assert len(result.elements) == 3
+        assert isinstance(result.elements[0], IntType)
+        assert isinstance(result.elements[1], StrType)
+        assert isinstance(result.elements[2], FloatType)
+
+    def test_extract_tuple_single_element(self) -> None:
+        """Test extracting tuple[int]."""
+        result = extract_type(tuple[int])
+        assert isinstance(result, TupleType)
+        assert len(result.elements) == 1
+        assert isinstance(result.elements[0], IntType)
+
+    def test_extract_tuple_with_nested_list(self) -> None:
+        """Test extracting tuple[list[int], str]."""
+        result = extract_type(tuple[list[int], str])
+        assert isinstance(result, TupleType)
+        assert len(result.elements) == 2
+        assert isinstance(result.elements[0], ListType)
+        assert isinstance(result.elements[0].element, IntType)
+        assert isinstance(result.elements[1], StrType)
+
+    def test_extract_tuple_with_dict(self) -> None:
+        """Test extracting tuple[str, dict[str, int]]."""
+        result = extract_type(tuple[str, dict[str, int]])
+        assert isinstance(result, TupleType)
+        assert len(result.elements) == 2
+        assert isinstance(result.elements[0], StrType)
+        assert isinstance(result.elements[1], DictType)
+
+    def test_extract_nested_tuple(self) -> None:
+        """Test extracting tuple[tuple[int, int], str]."""
+        result = extract_type(tuple[tuple[int, int], str])
+        assert isinstance(result, TupleType)
+        assert len(result.elements) == 2
+        assert isinstance(result.elements[0], TupleType)
+        assert len(result.elements[0].elements) == 2
+        assert isinstance(result.elements[1], StrType)
+
+    def test_extract_tuple_without_args_raises(self) -> None:
+        """Test that tuple without element types raises ValueError."""
+        # tuple without args is invalid in our schema
+        with pytest.raises(ValueError, match="tuple type must have element types"):
+            extract_type(tuple[()])
 
 
 class TestExtractWithTypeParameters:
