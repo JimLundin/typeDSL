@@ -922,7 +922,7 @@ class TestJSONAdapterComplexTypeRoundTrip:
 
         adapter = JSONAdapter()
         original = SetOfSetsNode(
-            groups={frozenset([1, 2]), frozenset([3, 4]), frozenset([5])}
+            groups={frozenset([1, 2]), frozenset([3, 4]), frozenset([5])},
         )
 
         serialized = adapter.serialize_node(original)
