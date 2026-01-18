@@ -163,42 +163,25 @@ class JSONAdapter(FormatAdapter):
         origin = get_origin(python_type)
         args = get_args(python_type)
 
-        # Tuple - convert list to tuple
-        if origin is tuple and isinstance(value, list):
-            return tuple(
-                self._deserialize_value(item, arg)
-                for item, arg in zip(value, args, strict=True)
-            )
+        # Sequence types - all serialize to JSON arrays
+        if isinstance(value, list):
+            if origin is tuple:
+                # Heterogeneous - each element has its own type
+                return tuple(
+                    self._deserialize_value(item, arg)
+                    for item, arg in zip(value, args, strict=True)
+                )
+            if origin in (list, set, frozenset) or origin is Sequence:
+                # Homogeneous - single element type
+                element_type = args[0] if args else Any
+                elements = (
+                    self._deserialize_value(item, element_type) for item in value
+                )
+                # Sequence abstract type -> list, others use their constructor
+                return list(elements) if origin is Sequence else origin(elements)
 
-        # Set - convert list to set
-        if origin is set and isinstance(value, list):
-            element_type = args[0] if args else Any
-            return {self._deserialize_value(item, element_type) for item in value}
-
-        # FrozenSet - convert list to frozenset
-        if origin is frozenset and isinstance(value, list):
-            element_type = args[0] if args else Any
-            return frozenset(
-                self._deserialize_value(item, element_type) for item in value
-            )
-
-        # List - recursively deserialize elements
-        if origin is list and isinstance(value, list):
-            element_type = args[0] if args else Any
-            return [self._deserialize_value(item, element_type) for item in value]
-
-        # Sequence (abstract) - deserialize as list
-        if origin is Sequence and isinstance(value, list):
-            element_type = args[0] if args else Any
-            return [self._deserialize_value(item, element_type) for item in value]
-
-        # Dict - recursively deserialize values
-        if origin is dict and isinstance(value, dict):
-            value_type = args[1] if len(args) > 1 else Any
-            return {k: self._deserialize_value(v, value_type) for k, v in value.items()}
-
-        # Mapping (abstract) - deserialize as dict
-        if origin is Mapping and isinstance(value, dict):
+        # Dict/Mapping types
+        if isinstance(value, dict) and origin in (dict, Mapping):
             value_type = args[1] if len(args) > 1 else Any
             return {k: self._deserialize_value(v, value_type) for k, v in value.items()}
 
@@ -206,7 +189,7 @@ class JSONAdapter(FormatAdapter):
         if origin is Union or isinstance(python_type, types.UnionType):
             for option in args:
                 result = self._deserialize_value(value, option)
-                if result is not value:  # Type conversion happened
+                if result is not value:
                     return result
             return value
 
