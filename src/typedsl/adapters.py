@@ -6,11 +6,9 @@ import json
 import types
 from collections.abc import Mapping, Sequence
 from collections.abc import Set as AbstractSet
-from dataclasses import fields
+from dataclasses import fields, is_dataclass
 from typing import (
-    TYPE_CHECKING,
     Any,
-    cast,
     get_args,
     get_origin,
     get_type_hints,
@@ -18,9 +16,6 @@ from typing import (
 
 from typedsl.nodes import Node, Ref
 from typedsl.types import TypeDef
-
-if TYPE_CHECKING:
-    from typedsl.schema import NodeSchema
 
 
 def _serialize_value(value: Any) -> Any:
@@ -50,6 +45,13 @@ def _serialize_value(value: Any) -> Any:
         return [_serialize_value(item) for item in value]
     if isinstance(value, Mapping):
         return {k: _serialize_value(v) for k, v in value.items()}
+    # Generic dataclass support (for NodeSchema, FieldSchema, etc.)
+    if is_dataclass(value) and not isinstance(value, type):
+        return {
+            f.name: _serialize_value(getattr(value, f.name))
+            for f in fields(value)
+            if not f.name.startswith("_")
+        }
     return value
 
 
@@ -138,33 +140,3 @@ def _deserialize_value(value: Any, python_type: Any) -> Any:
 
     # Primitives and unknown types - return as-is
     return value
-
-
-# Legacy adapter interface for backwards compatibility with existing code
-class JSONAdapter:
-    """JSON serialization adapter - thin wrapper around module functions."""
-
-    def serialize_node(self, node: Node[Any]) -> dict[str, Any]:
-        """Serialize a Node to a JSON-compatible dictionary."""
-        return cast("dict[str, Any]", _serialize_value(node))
-
-    def deserialize_node(self, data: dict[str, Any]) -> Node[Any]:
-        """Deserialize a JSON-compatible dictionary to a Node."""
-        return deserialize_node(data)
-
-    def serialize_typedef(self, typedef: TypeDef) -> dict[str, Any]:
-        """Serialize a TypeDef to a JSON-compatible dictionary."""
-        return cast("dict[str, Any]", _serialize_value(typedef))
-
-    def serialize_node_schema(self, schema: NodeSchema) -> dict[str, Any]:
-        """Serialize a NodeSchema to a JSON-compatible dictionary."""
-        return {
-            "tag": schema.tag,
-            "signature": schema.signature,
-            "type_params": [self.serialize_typedef(tp) for tp in schema.type_params],
-            "returns": self.serialize_typedef(schema.returns),
-            "fields": [
-                {"name": f.name, "type": self.serialize_typedef(f.type)}
-                for f in schema.fields
-            ],
-        }

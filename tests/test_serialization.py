@@ -191,17 +191,17 @@ class TestFromDict:
     def test_nested_nodes_from_dict(self) -> None:
         """Test deserializing nested nodes."""
 
-        class Leaf(Node[str], tag="leaf_deser"):
+        class Leaf(Node[str], tag="leaf_serialization"):
             text: str
 
-        class Branch(Node[str], tag="branch_deser"):
+        class Branch(Node[str], tag="branch_serialization"):
             left: Node[str]
             right: Node[str]
 
         data = {
-            "tag": "branch_deser",
-            "left": {"tag": "leaf_deser", "text": "hello"},
-            "right": {"tag": "leaf_deser", "text": "world"},
+            "tag": "branch_serialization",
+            "left": {"tag": "leaf_serialization", "text": "hello"},
+            "right": {"tag": "leaf_serialization", "text": "world"},
         }
         result = from_dict(data)
 
@@ -501,15 +501,16 @@ class TestSerializationEdgeCases:
         assert result == {"tag": "mapping_serial", "data": {}}
 
     def test_serialize_unsupported_type_raises_error(self) -> None:
-        """Test that serializing unsupported type raises error."""
+        """Test that serializing unsupported type raises error in to_json."""
 
         class CustomClass:
             pass
 
         obj = CustomClass()
 
-        with pytest.raises(ValueError, match="Cannot serialize"):
-            to_dict(obj)  # type: ignore[arg-type]
+        # to_json raises TypeError because JSONEncoder can't serialize CustomClass
+        with pytest.raises(TypeError, match="not JSON serializable"):
+            to_json(obj)  # type: ignore[arg-type]
 
 
 class TestSerializationTypes:
