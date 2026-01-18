@@ -2,8 +2,8 @@
 
 from typedsl.adapters import (
     # Format adapters
-    FormatAdapter,
     JSONAdapter,
+    JSONEncoder,
 )
 from typedsl.ast import (
     Interpreter,
@@ -77,12 +77,11 @@ __all__ = [
     "ExternalTypeRecord",
     "FieldSchema",
     "FloatType",
-    # Format adapters
-    "FormatAdapter",
     "FrozenSetType",
     "IntType",
     "Interpreter",
     "JSONAdapter",
+    "JSONEncoder",
     "ListType",
     "LiteralType",
     "MappingType",
