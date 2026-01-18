@@ -5,6 +5,7 @@ from __future__ import annotations
 import types
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
+from collections.abc import Set as AbstractSet
 from dataclasses import fields
 from typing import (
     TYPE_CHECKING,
@@ -139,9 +140,11 @@ class JSONAdapter(FormatAdapter):
             return {"tag": "ref", "id": value.id}
         if isinstance(value, TypeDef):
             return self.serialize_typedef(value)
-        if isinstance(value, list | tuple | set | frozenset):
+        # Sequences and sets -> JSON arrays (exclude str/bytes primitives)
+        is_collection = isinstance(value, Sequence | AbstractSet)
+        if is_collection and not isinstance(value, str | bytes):
             return [self._serialize_value(item) for item in value]
-        if isinstance(value, dict):
+        if isinstance(value, Mapping):
             return {k: self._serialize_value(v) for k, v in value.items()}
         return value
 
