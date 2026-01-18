@@ -27,13 +27,12 @@ This library is in beta. Do not maintain backwards compatibility:
 
 ## Serialization Architecture
 
-Serialization uses **schema-aware type reconstruction**:
+Serialization and deserialization are decoupled:
 
-- The schema system extracts Python type hints into `TypeDef` objects at runtime
-- During deserialization, `TypeDef` information guides type reconstruction
+- **Serialization**: TypeDef hierarchy used for schema export (to JSON for docs, codegen, etc.)
+- **Deserialization**: Uses Python types directly via `get_type_hints()`, `get_origin()`, `get_args()`
 - Types without native JSON representation (tuples, sets, frozensets) serialize as arrays
-- The schema tells us what Python type to reconstruct from JSON arrays
-- All deserialization goes through `_deserialize_value(value, typedef)` - no fallback to untyped deserialization
+- The Python type annotation tells us what type to reconstruct from JSON arrays
 
 ## Project Structure
 
