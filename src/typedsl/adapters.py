@@ -23,31 +23,44 @@ if TYPE_CHECKING:
     from typedsl.schema import NodeSchema
 
 
+def _serialize_value(value: Any) -> Any:
+    """Recursively convert a Python value to JSON-compatible format."""
+    if isinstance(value, Node):
+        result = {
+            f.name: _serialize_value(getattr(value, f.name))
+            for f in fields(value)
+            if not f.name.startswith("_")
+        }
+        result["tag"] = type(value).tag
+        return result
+    if isinstance(value, Ref):
+        return {"tag": "ref", "id": value.id}
+    if isinstance(value, TypeDef):
+        result = {
+            f.name: _serialize_value(getattr(value, f.name))
+            for f in fields(value)
+            if not f.name.startswith("_")
+        }
+        result["tag"] = type(value).tag
+        return result
+    # Sets and sequences (excluding str/bytes) -> JSON arrays
+    if isinstance(value, AbstractSet):
+        return [_serialize_value(item) for item in value]
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        return [_serialize_value(item) for item in value]
+    if isinstance(value, Mapping):
+        return {k: _serialize_value(v) for k, v in value.items()}
+    return value
+
+
 class JSONEncoder(json.JSONEncoder):
     """JSON encoder that handles Node, Ref, TypeDef, and sets."""
 
     def default(self, o: Any) -> Any:
         """Handle non-JSON-native types."""
-        if isinstance(o, Node):
-            result = {
-                f.name: getattr(o, f.name)
-                for f in fields(o)
-                if not f.name.startswith("_")
-            }
-            result["tag"] = type(o).tag
+        result = _serialize_value(o)
+        if result is not o:
             return result
-        if isinstance(o, Ref):
-            return {"tag": "ref", "id": o.id}
-        if isinstance(o, TypeDef):
-            result = {
-                f.name: getattr(o, f.name)
-                for f in fields(o)
-                if not f.name.startswith("_")
-            }
-            result["tag"] = type(o).tag
-            return result
-        if isinstance(o, AbstractSet):
-            return list(o)
         return super().default(o)
 
 
@@ -133,7 +146,7 @@ class JSONAdapter:
 
     def serialize_node(self, node: Node[Any]) -> dict[str, Any]:
         """Serialize a Node to a JSON-compatible dictionary."""
-        return cast("dict[str, Any]", json.loads(json.dumps(node, cls=JSONEncoder)))
+        return cast("dict[str, Any]", _serialize_value(node))
 
     def deserialize_node(self, data: dict[str, Any]) -> Node[Any]:
         """Deserialize a JSON-compatible dictionary to a Node."""
@@ -141,7 +154,7 @@ class JSONAdapter:
 
     def serialize_typedef(self, typedef: TypeDef) -> dict[str, Any]:
         """Serialize a TypeDef to a JSON-compatible dictionary."""
-        return cast("dict[str, Any]", json.loads(json.dumps(typedef, cls=JSONEncoder)))
+        return cast("dict[str, Any]", _serialize_value(typedef))
 
     def serialize_node_schema(self, schema: NodeSchema) -> dict[str, Any]:
         """Serialize a NodeSchema to a JSON-compatible dictionary."""
