@@ -1,8 +1,10 @@
 """Tests for node signature composition."""
 
+import json
+
 import pytest
 
-from typedsl.adapters import JSONAdapter
+from typedsl.adapters import JSONEncoder
 from typedsl.nodes import Node
 from typedsl.schema import node_schema
 from typedsl.serialization import to_dict
@@ -123,8 +125,7 @@ class TestSignatureSerialization:
             right: float
 
         schema = node_schema(MathAdd)
-        adapter = JSONAdapter()
-        serialized = adapter.serialize_node_schema(schema)
+        serialized = json.loads(json.dumps(schema, cls=JSONEncoder))
 
         assert serialized["tag"] == "math.add.1.0"
         assert serialized["signature"] == {

@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
-from typedsl.adapters import JSONAdapter
+from typedsl.adapters import JSONEncoder, _serialize_value, deserialize_node
 from typedsl.nodes import Node, Ref
-from typedsl.types import TypeDef
 
-_adapter = JSONAdapter()
+if TYPE_CHECKING:
+    from typedsl.types import TypeDef
+
 _MAX_TAGS_IN_ERROR = 10  # Maximum number of tags to show in error messages
 
 
@@ -22,18 +23,8 @@ def to_dict(obj: Node[Any] | Ref[Any] | TypeDef) -> dict[str, Any]:
     Returns:
         Dictionary representation of the object
 
-    Raises:
-        ValueError: If object type cannot be serialized
-
     """
-    if isinstance(obj, Ref):
-        return {"tag": "ref", "id": obj.id}
-    if isinstance(obj, Node):
-        return _adapter.serialize_node(obj)
-    if isinstance(obj, TypeDef):
-        return _adapter.serialize_typedef(obj)
-    msg = f"Cannot serialize object of type {type(obj).__name__}"
-    raise ValueError(msg)
+    return cast("dict[str, Any]", _serialize_value(obj))
 
 
 def from_dict(data: dict[str, Any]) -> Node[Any] | Ref[Any]:
@@ -67,7 +58,7 @@ def from_dict(data: dict[str, Any]) -> Node[Any] | Ref[Any]:
         return Ref[Any](id=data["id"])
 
     if tag in Node.registry:
-        return _adapter.deserialize_node(data)
+        return deserialize_node(data)
 
     # Provide helpful error with available tags
     available = list(Node.registry.keys())[:_MAX_TAGS_IN_ERROR]
@@ -85,11 +76,8 @@ def to_json(obj: Node[Any] | Ref[Any] | TypeDef) -> str:
     Returns:
         JSON string representation (formatted with 2-space indent)
 
-    Raises:
-        ValueError: If object type cannot be serialized
-
     """
-    return json.dumps(to_dict(obj), indent=2)
+    return json.dumps(obj, cls=JSONEncoder, indent=2)
 
 
 def from_json(s: str) -> Node[Any] | Ref[Any]:

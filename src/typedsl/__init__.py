@@ -2,7 +2,6 @@
 
 from typedsl.adapters import (
     # Format adapters
-    JSONAdapter,
     JSONEncoder,
 )
 from typedsl.ast import (
@@ -80,7 +79,6 @@ __all__ = [
     "FrozenSetType",
     "IntType",
     "Interpreter",
-    "JSONAdapter",
     "JSONEncoder",
     "ListType",
     "LiteralType",
