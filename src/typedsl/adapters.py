@@ -171,16 +171,18 @@ class JSONAdapter(FormatAdapter):
                     self._deserialize_value(item, arg)
                     for item, arg in zip(value, args, strict=True)
                 )
-            if origin in (list, set, frozenset) or origin is Sequence:
-                # Homogeneous - single element type
+            if origin in (list, set, frozenset):
+                # Homogeneous - single element type, use constructor
                 element_type = args[0] if args else Any
-                elements = (
+                return origin(
                     self._deserialize_value(item, element_type) for item in value
                 )
-                # Sequence abstract type -> list, others use their constructor
-                return list(elements) if origin is Sequence else origin(elements)
+            if origin is Sequence:
+                # Abstract Sequence -> concrete list
+                element_type = args[0] if args else Any
+                return [self._deserialize_value(item, element_type) for item in value]
 
-        # Dict/Mapping types
+        # Dict/Mapping types - both deserialize to dict
         if isinstance(value, dict) and origin in (dict, Mapping):
             value_type = args[1] if len(args) > 1 else Any
             return {k: self._deserialize_value(v, value_type) for k, v in value.items()}
