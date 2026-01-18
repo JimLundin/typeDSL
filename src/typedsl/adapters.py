@@ -10,6 +10,7 @@ from dataclasses import fields
 from typing import (
     TYPE_CHECKING,
     Any,
+    cast,
     get_args,
     get_origin,
     get_type_hints,
@@ -132,7 +133,7 @@ class JSONAdapter:
 
     def serialize_node(self, node: Node[Any]) -> dict[str, Any]:
         """Serialize a Node to a JSON-compatible dictionary."""
-        return json.loads(json.dumps(node, cls=JSONEncoder))
+        return cast("dict[str, Any]", json.loads(json.dumps(node, cls=JSONEncoder)))
 
     def deserialize_node(self, data: dict[str, Any]) -> Node[Any]:
         """Deserialize a JSON-compatible dictionary to a Node."""
@@ -140,7 +141,7 @@ class JSONAdapter:
 
     def serialize_typedef(self, typedef: TypeDef) -> dict[str, Any]:
         """Serialize a TypeDef to a JSON-compatible dictionary."""
-        return json.loads(json.dumps(typedef, cls=JSONEncoder))
+        return cast("dict[str, Any]", json.loads(json.dumps(typedef, cls=JSONEncoder)))
 
     def serialize_node_schema(self, schema: NodeSchema) -> dict[str, Any]:
         """Serialize a NodeSchema to a JSON-compatible dictionary."""
