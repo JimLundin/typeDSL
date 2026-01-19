@@ -345,11 +345,11 @@ class TestExtractTuples:
         assert len(result.elements[0].elements) == 2
         assert isinstance(result.elements[1], StrType)
 
-    def test_extract_tuple_without_args_raises(self) -> None:
-        """Test that tuple without element types raises ValueError."""
-        # tuple without args is invalid in our schema
-        with pytest.raises(ValueError, match="tuple type must have element types"):
-            extract_type(tuple[()])
+    def test_extract_empty_tuple(self) -> None:
+        """Test that tuple[()] is valid as an empty tuple type."""
+        result = extract_type(tuple[()])
+        assert isinstance(result, TupleType)
+        assert result.elements == ()
 
 
 class TestExtractWithTypeParameters:

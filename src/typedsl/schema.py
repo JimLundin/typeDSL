@@ -142,10 +142,8 @@ def extract_type(py_type: Any) -> TypeDef:
         return typedef_cls(*(extract_type(arg) for arg in args))
 
     # Tuple (heterogeneous, variable-length elements)
+    # Note: tuple[()] represents an empty tuple type and has args = ()
     if origin is tuple:
-        if not args:
-            msg = "tuple type must have element types"
-            raise ValueError(msg)
         return TupleType(elements=tuple(extract_type(arg) for arg in args))
 
     # Literal values

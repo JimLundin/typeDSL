@@ -9,9 +9,9 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
+
 from typedsl.codecs import TypeCodecs, from_builtins, to_builtins
 from typedsl.formats.json import from_json, to_json
-
 from typedsl.nodes import Node
 
 # =============================================================================
@@ -53,6 +53,30 @@ class Point:
 
     x: float
     y: float
+
+
+# Register mock external types at module load.
+# TypeCodecs.register() automatically registers with the schema system too.
+# This ensures all_schemas() works for nodes that use these types.
+def _register_mock_types() -> None:
+    TypeCodecs.register(
+        MockDataFrame,
+        encode=lambda df: df.to_dicts(),
+        decode=lambda data: MockDataFrame.from_dicts(data),
+    )
+    TypeCodecs.register(
+        MockNDArray,
+        encode=lambda arr: arr.tolist(),
+        decode=lambda data: MockNDArray(data=data),
+    )
+    TypeCodecs.register(
+        Point,
+        encode=lambda p: [p.x, p.y],
+        decode=lambda data: Point(x=data[0], y=data[1]),
+    )
+
+
+_register_mock_types()
 
 
 # =============================================================================
@@ -978,11 +1002,15 @@ class TestCodecErrors:
         class BadNode(Node[None], tag="bad_node_unregistered"):
             value: UnknownType
 
-        node = BadNode(value=UnknownType())
+        try:
+            node = BadNode(value=UnknownType())
 
-        # Should raise because UnknownType has no codec and isn't JSON serializable
-        with pytest.raises(TypeError):
-            to_json(node)
+            # Should raise because UnknownType has no codec and isn't JSON serializable
+            with pytest.raises(TypeError):
+                to_json(node)
+        finally:
+            # Clean up registry to avoid issues with all_schemas() in other tests
+            Node.registry.pop("bad_node_unregistered", None)
 
     def test_deserialize_with_invalid_data_for_codec(self) -> None:
         """Test deserializing with data that doesn't match expected format."""
@@ -1060,16 +1088,20 @@ class TestRecursiveEncoding:
         class ContainerNode(Node[None], tag="container_node_recursive"):
             data: Container
 
-        node = ContainerNode(
-            data=Container(items=[datetime(2024, 1, 1), datetime(2024, 6, 15)]),
-        )
+        try:
+            node = ContainerNode(
+                data=Container(items=[datetime(2024, 1, 1), datetime(2024, 6, 15)]),
+            )
 
-        serialized = to_builtins(node)
+            serialized = to_builtins(node)
 
-        # The datetimes inside should be encoded to ISO strings
-        assert serialized == {
-            "tag": "container_node_recursive",
-            "data": {
-                "items": ["2024-01-01T00:00:00", "2024-06-15T00:00:00"],
-            },
-        }
+            # The datetimes inside should be encoded to ISO strings
+            assert serialized == {
+                "tag": "container_node_recursive",
+                "data": {
+                    "items": ["2024-01-01T00:00:00", "2024-06-15T00:00:00"],
+                },
+            }
+        finally:
+            # Clean up to avoid issues with all_schemas() in other tests
+            Node.registry.pop("container_node_recursive", None)
