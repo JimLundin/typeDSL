@@ -56,6 +56,7 @@ root = "src/typedsl"
 reportUnknownArgumentType = "warning"
 reportUnknownVariableType = "warning"
 reportUnnecessaryIsInstance = "warning"  # Defensive checks for invalid inputs are fine
+reportPrivateUsage = "warning"  # Internal cross-module access is intentional
 
 [tool.ruff]
 unsafe-fixes = true
@@ -82,17 +83,12 @@ ignore = [
 ]
 "src/typedsl/nodes.py" = ["ANN401"]  # __init_subclass__ accepts arbitrary **kwargs
 "src/typedsl/types.py" = ["ANN401"]  # substitute_type_params handles arbitrary type expressions
-"src/typedsl/adapters.py" = [
-    "ANN401",   # serialization handles arbitrary values
-    "C901",     # _deserialize_value_with_type is a type dispatch function
-    "PLR0911",  # multiple returns needed for type dispatch
-    "PLR0912",  # multiple branches needed for type dispatch
-]
 "src/typedsl/codecs.py" = [
     "ANN401",   # serialization handles arbitrary values
     "C901",     # type dispatch functions are inherently complex
     "PLR0911",  # multiple returns needed for type dispatch
     "PLR0912",  # multiple branches needed for type dispatch
+    "SLF001",   # intentionally accesses TypeDef._register_external
 ]
 "src/typedsl/formats/*.py" = [
     "ANN401",   # serialization handles arbitrary values
