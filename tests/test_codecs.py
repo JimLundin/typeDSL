@@ -9,11 +9,10 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-
 from typedsl.codecs import TypeCodecs, from_builtins, to_builtins
 from typedsl.formats.json import from_json, to_json
-from typedsl.nodes import Node
 
+from typedsl.nodes import Node
 
 # =============================================================================
 # Mock external types for testing (simulating polars DataFrame, numpy array, etc.)
@@ -117,7 +116,11 @@ class TestTypeCodecsRegistration:
 
     def test_clear_removes_all_registrations(self) -> None:
         """Test that clear() removes all registered codecs."""
-        TypeCodecs.register(Point, encode=lambda p: [p.x, p.y], decode=lambda d: Point(d[0], d[1]))
+        TypeCodecs.register(
+            Point,
+            encode=lambda p: [p.x, p.y],
+            decode=lambda d: Point(d[0], d[1]),
+        )
         assert TypeCodecs.get(Point) is not None
 
         TypeCodecs.clear()
@@ -264,7 +267,10 @@ class TestExternalTypeInNodes:
         class DataNode(Node[None], tag="data_node_ext"):
             data: MockDataFrame
 
-        df = MockDataFrame(columns=["x", "y"], data=[{"x": 1, "y": 2}, {"x": 3, "y": 4}])
+        df = MockDataFrame(
+            columns=["x", "y"],
+            data=[{"x": 1, "y": 2}, {"x": 3, "y": 4}],
+        )
         node = DataNode(data=df)
 
         result = to_builtins(node)
@@ -524,7 +530,9 @@ class TestNestedExternalTypes:
         class PolygonNode(Node[None], tag="polygon_node"):
             vertices: list[Point]
 
-        polygon = PolygonNode(vertices=[Point(0, 0), Point(1, 0), Point(1, 1), Point(0, 1)])
+        polygon = PolygonNode(
+            vertices=[Point(0, 0), Point(1, 0), Point(1, 1), Point(0, 1)],
+        )
 
         serialized = to_builtins(polygon)
         assert serialized == {
@@ -610,7 +618,7 @@ class TestNestedBuiltinTypes:
             timestamps=[
                 datetime(2024, 1, 1, 0, 0, 0),
                 datetime(2024, 6, 15, 12, 30, 0),
-            ]
+            ],
         )
 
         serialized = to_builtins(node)
@@ -642,6 +650,274 @@ class TestNestedBuiltinTypes:
         assert isinstance(deserialized, PricesNode)
         assert deserialized.prices["apple"] == Decimal("1.99")
         assert isinstance(deserialized.prices["apple"], Decimal)
+
+
+# =============================================================================
+# Test: Comprehensive Collection Coverage
+# =============================================================================
+
+
+class TestCollectionCoverage:
+    """Test thorough coverage of all collection types and nesting patterns."""
+
+    def test_set_of_datetime(self) -> None:
+        """Test set containing codec-registered element types."""
+
+        class DateSetNode(Node[None], tag="date_set_node"):
+            dates: set[datetime]
+
+        original = DateSetNode(
+            dates={datetime(2024, 1, 1), datetime(2024, 6, 15), datetime(2024, 12, 31)},
+        )
+
+        serialized = to_builtins(original)
+        assert serialized["tag"] == "date_set_node"
+        # Set becomes list, datetimes become ISO strings
+        assert set(serialized["dates"]) == {
+            "2024-01-01T00:00:00",
+            "2024-06-15T00:00:00",
+            "2024-12-31T00:00:00",
+        }
+
+        deserialized = from_builtins(serialized)
+        assert isinstance(deserialized, DateSetNode)
+        assert isinstance(deserialized.dates, set)
+        assert all(isinstance(d, datetime) for d in deserialized.dates)
+        assert deserialized.dates == original.dates
+
+    def test_frozenset_of_date(self) -> None:
+        """Test frozenset containing codec-registered element types."""
+
+        class FrozenDateNode(Node[None], tag="frozen_date_node"):
+            dates: frozenset[date]
+
+        original = FrozenDateNode(
+            dates=frozenset({date(2024, 1, 1), date(2024, 12, 31)}),
+        )
+
+        serialized = to_builtins(original)
+        assert set(serialized["dates"]) == {"2024-01-01", "2024-12-31"}
+
+        deserialized = from_builtins(serialized)
+        assert isinstance(deserialized.dates, frozenset)
+        assert all(isinstance(d, date) for d in deserialized.dates)
+        assert deserialized.dates == original.dates
+
+    def test_tuple_with_mixed_codec_types(self) -> None:
+        """Test heterogeneous tuple with codec-registered types."""
+
+        class MixedTupleNode(Node[None], tag="mixed_tuple_node"):
+            record: tuple[datetime, Decimal, bytes]
+
+        original = MixedTupleNode(
+            record=(datetime(2024, 1, 15), Decimal("99.99"), b"data"),
+        )
+
+        serialized = to_builtins(original)
+        assert serialized == {
+            "tag": "mixed_tuple_node",
+            "record": ["2024-01-15T00:00:00", "99.99", "ZGF0YQ=="],
+        }
+
+        deserialized = from_builtins(serialized)
+        assert isinstance(deserialized.record, tuple)
+        assert deserialized.record[0] == datetime(2024, 1, 15)
+        assert deserialized.record[1] == Decimal("99.99")
+        assert deserialized.record[2] == b"data"
+
+    def test_list_of_sets(self) -> None:
+        """Test nested collections: list containing sets."""
+
+        class ListOfSetsNode(Node[None], tag="list_of_sets_node"):
+            groups: list[set[int]]
+
+        original = ListOfSetsNode(groups=[{1, 2}, {3, 4, 5}, {6}])
+
+        serialized = to_builtins(original)
+        assert serialized["tag"] == "list_of_sets_node"
+        # Each set becomes a list
+        assert len(serialized["groups"]) == 3
+        assert set(serialized["groups"][0]) == {1, 2}
+        assert set(serialized["groups"][1]) == {3, 4, 5}
+        assert set(serialized["groups"][2]) == {6}
+
+        deserialized = from_builtins(serialized)
+        assert isinstance(deserialized.groups, list)
+        assert all(isinstance(g, set) for g in deserialized.groups)
+        assert deserialized.groups == original.groups
+
+    def test_set_of_tuples(self) -> None:
+        """Test nested collections: set containing tuples."""
+
+        class SetOfTuplesNode(Node[None], tag="set_of_tuples_node"):
+            coordinates: set[tuple[int, int]]
+
+        original = SetOfTuplesNode(coordinates={(0, 0), (1, 2), (3, 4)})
+
+        serialized = to_builtins(original)
+        # Set becomes list, tuples become lists
+        coords_as_lists = [list(c) for c in serialized["coordinates"]]
+        assert [0, 0] in coords_as_lists
+        assert [1, 2] in coords_as_lists
+        assert [3, 4] in coords_as_lists
+
+        deserialized = from_builtins(serialized)
+        assert isinstance(deserialized.coordinates, set)
+        assert all(isinstance(c, tuple) for c in deserialized.coordinates)
+        assert deserialized.coordinates == original.coordinates
+
+    def test_dict_with_list_of_datetime_values(self) -> None:
+        """Test deeply nested: dict with list values containing codec types."""
+
+        class ScheduleNode(Node[None], tag="schedule_node"):
+            events: dict[str, list[datetime]]
+
+        original = ScheduleNode(
+            events={
+                "monday": [datetime(2024, 1, 1, 9, 0), datetime(2024, 1, 1, 14, 0)],
+                "tuesday": [datetime(2024, 1, 2, 10, 0)],
+            },
+        )
+
+        serialized = to_builtins(original)
+        assert serialized == {
+            "tag": "schedule_node",
+            "events": {
+                "monday": ["2024-01-01T09:00:00", "2024-01-01T14:00:00"],
+                "tuesday": ["2024-01-02T10:00:00"],
+            },
+        }
+
+        deserialized = from_builtins(serialized)
+        assert isinstance(deserialized.events, dict)
+        assert all(isinstance(v, list) for v in deserialized.events.values())
+        assert all(
+            isinstance(dt, datetime)
+            for dts in deserialized.events.values()
+            for dt in dts
+        )
+        assert deserialized.events == original.events
+
+    def test_list_of_list_of_decimal(self) -> None:
+        """Test deeply nested: list of lists with codec types."""
+
+        class MatrixNode(Node[None], tag="matrix_node"):
+            matrix: list[list[Decimal]]
+
+        original = MatrixNode(
+            matrix=[
+                [Decimal("1.1"), Decimal("1.2")],
+                [Decimal("2.1"), Decimal("2.2")],
+            ],
+        )
+
+        serialized = to_builtins(original)
+        assert serialized == {
+            "tag": "matrix_node",
+            "matrix": [["1.1", "1.2"], ["2.1", "2.2"]],
+        }
+
+        deserialized = from_builtins(serialized)
+        assert all(
+            isinstance(cell, Decimal) for row in deserialized.matrix for cell in row
+        )
+        assert deserialized.matrix == original.matrix
+
+    def test_tuple_of_lists_of_sets(self) -> None:
+        """Test triple nesting: tuple containing lists containing sets."""
+
+        class DeepNestNode(Node[None], tag="deep_nest_node"):
+            data: tuple[list[set[int]], list[set[int]]]
+
+        original = DeepNestNode(data=([{1, 2}, {3}], [{4, 5, 6}]))
+
+        serialized = to_builtins(original)
+        # tuple -> list, inner sets -> lists
+        assert len(serialized["data"]) == 2
+        assert len(serialized["data"][0]) == 2
+        assert set(serialized["data"][0][0]) == {1, 2}
+
+        deserialized = from_builtins(serialized)
+        assert isinstance(deserialized.data, tuple)
+        assert isinstance(deserialized.data[0], list)
+        assert isinstance(deserialized.data[0][0], set)
+        assert deserialized.data == original.data
+
+    def test_dict_with_tuple_keys_not_supported(self) -> None:
+        """Document that dict with non-string keys requires special handling.
+
+        JSON only supports string keys, so dict[tuple[int, int], str] would
+        need custom handling. This test documents the expected behavior.
+        """
+        # This is a limitation - JSON can't have tuple keys
+        # Users would need to register a custom codec or restructure data
+
+    def test_optional_collection_with_value(self) -> None:
+        """Test optional collection type with a value."""
+
+        class OptionalListNode(Node[None], tag="optional_list_node"):
+            items: list[int] | None
+
+        # With value
+        with_value = OptionalListNode(items=[1, 2, 3])
+        serialized = to_builtins(with_value)
+        assert serialized == {"tag": "optional_list_node", "items": [1, 2, 3]}
+
+        deserialized = from_builtins(serialized)
+        assert deserialized.items == [1, 2, 3]
+
+        # With None
+        with_none = OptionalListNode(items=None)
+        serialized_none = to_builtins(with_none)
+        assert serialized_none == {"tag": "optional_list_node", "items": None}
+
+        deserialized_none = from_builtins(serialized_none)
+        assert deserialized_none.items is None
+
+    def test_optional_set_of_datetime(self) -> None:
+        """Test optional set with codec element types."""
+
+        class OptionalDateSetNode(Node[None], tag="optional_date_set_node"):
+            dates: set[datetime] | None
+
+        original = OptionalDateSetNode(dates={datetime(2024, 1, 1)})
+
+        serialized = to_builtins(original)
+        deserialized = from_builtins(serialized)
+
+        assert isinstance(deserialized.dates, set)
+        assert all(isinstance(d, datetime) for d in deserialized.dates)
+
+    def test_empty_collections(self) -> None:
+        """Test empty collections of various types."""
+
+        class EmptyCollectionsNode(Node[None], tag="empty_collections_node"):
+            empty_list: list[datetime]
+            empty_set: set[int]
+            empty_dict: dict[str, Decimal]
+            empty_tuple: tuple[()]  # Empty tuple type
+
+        original = EmptyCollectionsNode(
+            empty_list=[],
+            empty_set=set(),
+            empty_dict={},
+            empty_tuple=(),
+        )
+
+        serialized = to_builtins(original)
+        assert serialized == {
+            "tag": "empty_collections_node",
+            "empty_list": [],
+            "empty_set": [],
+            "empty_dict": {},
+            "empty_tuple": [],
+        }
+
+        deserialized = from_builtins(serialized)
+        assert deserialized.empty_list == []
+        assert deserialized.empty_set == set()
+        assert deserialized.empty_dict == {}
+        assert deserialized.empty_tuple == ()
 
 
 # =============================================================================
@@ -716,7 +992,7 @@ class TestCodecErrors:
 
         data = {"tag": "date_node_bad", "day": "not-a-valid-date"}
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="Invalid isoformat string"):
             from_builtins(data)
 
 
@@ -754,11 +1030,9 @@ class TestWalrusPatternUsage:
             pass
 
         obj = NotRegistered()
-        if codec := TypeCodecs.get(type(obj)):
+        if TypeCodecs.get(type(obj)):
             pytest.fail("Should not find codec for unregistered type")
-        else:
-            # This is expected - no codec found
-            pass
+        # If we get here, no codec was found - which is expected
 
 
 # =============================================================================
@@ -787,7 +1061,7 @@ class TestRecursiveEncoding:
             data: Container
 
         node = ContainerNode(
-            data=Container(items=[datetime(2024, 1, 1), datetime(2024, 6, 15)])
+            data=Container(items=[datetime(2024, 1, 1), datetime(2024, 6, 15)]),
         )
 
         serialized = to_builtins(node)
