@@ -10,8 +10,9 @@ from typing import Any
 
 import pytest
 
+from typedsl.codecs import TypeCodecs, from_builtins, to_builtins
+from typedsl.formats.json import from_json, to_json
 from typedsl.nodes import Node
-from typedsl.serialization import from_dict, from_json, to_dict, to_json
 
 
 # =============================================================================
@@ -65,8 +66,6 @@ class TestTypeCodecsRegistration:
 
     def test_register_external_type(self) -> None:
         """Test registering an external type with encode/decode functions."""
-        from typedsl.codecs import TypeCodecs
-
         # Clear any existing registration
         TypeCodecs.clear()
 
@@ -91,8 +90,6 @@ class TestTypeCodecsRegistration:
 
     def test_register_with_lambdas(self) -> None:
         """Test registering with simple lambda functions."""
-        from typedsl.codecs import TypeCodecs
-
         TypeCodecs.clear()
 
         TypeCodecs.register(
@@ -111,8 +108,6 @@ class TestTypeCodecsRegistration:
 
     def test_get_unregistered_type_returns_none(self) -> None:
         """Test that getting an unregistered type returns None."""
-        from typedsl.codecs import TypeCodecs
-
         TypeCodecs.clear()
 
         class UnregisteredType:
@@ -122,8 +117,6 @@ class TestTypeCodecsRegistration:
 
     def test_clear_removes_all_registrations(self) -> None:
         """Test that clear() removes all registered codecs."""
-        from typedsl.codecs import TypeCodecs
-
         TypeCodecs.register(Point, encode=lambda p: [p.x, p.y], decode=lambda d: Point(d[0], d[1]))
         assert TypeCodecs.get(Point) is not None
 
@@ -132,8 +125,6 @@ class TestTypeCodecsRegistration:
 
     def test_register_overwrites_existing(self) -> None:
         """Test that registering the same type overwrites the previous codec."""
-        from typedsl.codecs import TypeCodecs
-
         TypeCodecs.clear()
 
         # First registration
@@ -164,8 +155,6 @@ class TestBuiltinCodecs:
 
     def test_bytes_codec_registered(self) -> None:
         """Test that bytes codec is pre-registered."""
-        from typedsl.codecs import TypeCodecs
-
         codec = TypeCodecs.get(bytes)
         assert codec is not None
 
@@ -177,8 +166,6 @@ class TestBuiltinCodecs:
 
     def test_datetime_codec_registered(self) -> None:
         """Test that datetime codec is pre-registered."""
-        from typedsl.codecs import TypeCodecs
-
         codec = TypeCodecs.get(datetime)
         assert codec is not None
 
@@ -190,8 +177,6 @@ class TestBuiltinCodecs:
 
     def test_date_codec_registered(self) -> None:
         """Test that date codec is pre-registered."""
-        from typedsl.codecs import TypeCodecs
-
         codec = TypeCodecs.get(date)
         assert codec is not None
 
@@ -203,8 +188,6 @@ class TestBuiltinCodecs:
 
     def test_time_codec_registered(self) -> None:
         """Test that time codec is pre-registered."""
-        from typedsl.codecs import TypeCodecs
-
         codec = TypeCodecs.get(time)
         assert codec is not None
 
@@ -216,8 +199,6 @@ class TestBuiltinCodecs:
 
     def test_timedelta_codec_registered(self) -> None:
         """Test that timedelta codec is pre-registered."""
-        from typedsl.codecs import TypeCodecs
-
         codec = TypeCodecs.get(timedelta)
         assert codec is not None
 
@@ -229,8 +210,6 @@ class TestBuiltinCodecs:
 
     def test_decimal_codec_registered(self) -> None:
         """Test that Decimal codec is pre-registered."""
-        from typedsl.codecs import TypeCodecs
-
         codec = TypeCodecs.get(Decimal)
         assert codec is not None
 
@@ -242,8 +221,6 @@ class TestBuiltinCodecs:
 
     def test_set_codec_registered(self) -> None:
         """Test that set codec is pre-registered."""
-        from typedsl.codecs import TypeCodecs
-
         codec = TypeCodecs.get(set)
         assert codec is not None
 
@@ -256,8 +233,6 @@ class TestBuiltinCodecs:
 
     def test_frozenset_codec_registered(self) -> None:
         """Test that frozenset codec is pre-registered."""
-        from typedsl.codecs import TypeCodecs
-
         codec = TypeCodecs.get(frozenset)
         assert codec is not None
 
@@ -279,8 +254,6 @@ class TestExternalTypeInNodes:
 
     def test_serialize_node_with_external_type(self) -> None:
         """Test serializing a node containing an external type field."""
-        from typedsl.codecs import TypeCodecs
-
         TypeCodecs.clear()
         TypeCodecs.register(
             MockDataFrame,
@@ -294,7 +267,7 @@ class TestExternalTypeInNodes:
         df = MockDataFrame(columns=["x", "y"], data=[{"x": 1, "y": 2}, {"x": 3, "y": 4}])
         node = DataNode(data=df)
 
-        result = to_dict(node)
+        result = to_builtins(node)
 
         assert result == {
             "tag": "data_node_ext",
@@ -303,8 +276,6 @@ class TestExternalTypeInNodes:
 
     def test_deserialize_node_with_external_type(self) -> None:
         """Test deserializing a node containing an external type field."""
-        from typedsl.codecs import TypeCodecs
-
         TypeCodecs.clear()
         TypeCodecs.register(
             MockDataFrame,
@@ -320,7 +291,7 @@ class TestExternalTypeInNodes:
             "data": [{"a": 10, "b": 20}],
         }
 
-        result = from_dict(data)
+        result = from_builtins(data)
 
         assert isinstance(result, DataNodeDeser)
         assert isinstance(result.data, MockDataFrame)
@@ -328,8 +299,6 @@ class TestExternalTypeInNodes:
 
     def test_round_trip_node_with_external_type(self) -> None:
         """Test round-trip for node with external type field."""
-        from typedsl.codecs import TypeCodecs
-
         TypeCodecs.clear()
         TypeCodecs.register(
             MockDataFrame,
@@ -344,8 +313,8 @@ class TestExternalTypeInNodes:
         df = MockDataFrame(columns=["col"], data=[{"col": 100}])
         original = DataNodeRT(data=df, name="test")
 
-        serialized = to_dict(original)
-        deserialized = from_dict(serialized)
+        serialized = to_builtins(original)
+        deserialized = from_builtins(serialized)
 
         assert isinstance(deserialized, DataNodeRT)
         assert deserialized.name == "test"
@@ -353,8 +322,6 @@ class TestExternalTypeInNodes:
 
     def test_json_round_trip_with_external_type(self) -> None:
         """Test JSON round-trip for node with external type field."""
-        from typedsl.codecs import TypeCodecs
-
         TypeCodecs.clear()
         TypeCodecs.register(
             Point,
@@ -389,7 +356,7 @@ class TestBuiltinTypeInNodes:
             created_at: datetime
 
         node = TimestampNode(created_at=datetime(2024, 1, 15, 10, 30, 0))
-        result = to_dict(node)
+        result = to_builtins(node)
 
         assert result == {
             "tag": "timestamp_node",
@@ -406,7 +373,7 @@ class TestBuiltinTypeInNodes:
             "tag": "timestamp_node_deser",
             "created_at": "2024-06-20T14:45:30",
         }
-        result = from_dict(data)
+        result = from_builtins(data)
 
         assert isinstance(result, TimestampNodeDeser)
         assert result.created_at == datetime(2024, 6, 20, 14, 45, 30)
@@ -418,8 +385,8 @@ class TestBuiltinTypeInNodes:
             ts: datetime
 
         original = TimestampRT(ts=datetime(2024, 12, 25, 8, 0, 0))
-        serialized = to_dict(original)
-        deserialized = from_dict(serialized)
+        serialized = to_builtins(original)
+        deserialized = from_builtins(serialized)
 
         assert deserialized == original
 
@@ -430,7 +397,7 @@ class TestBuiltinTypeInNodes:
             birthday: date
 
         node = DateNode(birthday=date(1990, 5, 15))
-        result = to_dict(node)
+        result = to_builtins(node)
 
         assert result == {"tag": "date_node", "birthday": "1990-05-15"}
 
@@ -441,7 +408,7 @@ class TestBuiltinTypeInNodes:
             day: date
 
         original = DateRT(day=date(2024, 7, 4))
-        deserialized = from_dict(to_dict(original))
+        deserialized = from_builtins(to_builtins(original))
 
         assert deserialized == original
 
@@ -452,7 +419,7 @@ class TestBuiltinTypeInNodes:
             start_time: time
 
         node = TimeNode(start_time=time(9, 30, 0))
-        result = to_dict(node)
+        result = to_builtins(node)
 
         assert result == {"tag": "time_node", "start_time": "09:30:00"}
 
@@ -463,7 +430,7 @@ class TestBuiltinTypeInNodes:
             t: time
 
         original = TimeRT(t=time(23, 59, 59))
-        deserialized = from_dict(to_dict(original))
+        deserialized = from_builtins(to_builtins(original))
 
         assert deserialized == original
 
@@ -474,7 +441,7 @@ class TestBuiltinTypeInNodes:
             duration: timedelta
 
         node = DurationNode(duration=timedelta(hours=1, minutes=30))
-        result = to_dict(node)
+        result = to_builtins(node)
 
         assert result == {"tag": "duration_node", "duration": 5400.0}
 
@@ -485,7 +452,7 @@ class TestBuiltinTypeInNodes:
             d: timedelta
 
         original = DurationRT(d=timedelta(days=1, hours=2, minutes=3))
-        deserialized = from_dict(to_dict(original))
+        deserialized = from_builtins(to_builtins(original))
 
         assert deserialized == original
 
@@ -496,7 +463,7 @@ class TestBuiltinTypeInNodes:
             data: bytes
 
         node = BinaryNode(data=b"hello")
-        result = to_dict(node)
+        result = to_builtins(node)
 
         assert result["tag"] == "binary_node"
         # Should be base64 encoded
@@ -509,7 +476,7 @@ class TestBuiltinTypeInNodes:
             payload: bytes
 
         original = BinaryRT(payload=b"\x00\x01\x02\xff")
-        deserialized = from_dict(to_dict(original))
+        deserialized = from_builtins(to_builtins(original))
 
         assert deserialized == original
 
@@ -520,7 +487,7 @@ class TestBuiltinTypeInNodes:
             amount: Decimal
 
         node = MoneyNode(amount=Decimal("99.99"))
-        result = to_dict(node)
+        result = to_builtins(node)
 
         assert result == {"tag": "money_node", "amount": "99.99"}
 
@@ -531,7 +498,7 @@ class TestBuiltinTypeInNodes:
             price: Decimal
 
         original = MoneyRT(price=Decimal("123.456"))
-        deserialized = from_dict(to_dict(original))
+        deserialized = from_builtins(to_builtins(original))
 
         assert deserialized == original
         assert isinstance(deserialized.price, Decimal)
@@ -547,8 +514,6 @@ class TestNestedExternalTypes:
 
     def test_list_of_external_type(self) -> None:
         """Test node with list of external type."""
-        from typedsl.codecs import TypeCodecs
-
         TypeCodecs.clear()
         TypeCodecs.register(
             Point,
@@ -561,13 +526,13 @@ class TestNestedExternalTypes:
 
         polygon = PolygonNode(vertices=[Point(0, 0), Point(1, 0), Point(1, 1), Point(0, 1)])
 
-        serialized = to_dict(polygon)
+        serialized = to_builtins(polygon)
         assert serialized == {
             "tag": "polygon_node",
             "vertices": [[0, 0], [1, 0], [1, 1], [0, 1]],
         }
 
-        deserialized = from_dict(serialized)
+        deserialized = from_builtins(serialized)
         assert isinstance(deserialized, PolygonNode)
         assert len(deserialized.vertices) == 4
         assert all(isinstance(v, Point) for v in deserialized.vertices)
@@ -575,8 +540,6 @@ class TestNestedExternalTypes:
 
     def test_dict_with_external_type_values(self) -> None:
         """Test node with dict containing external type values."""
-        from typedsl.codecs import TypeCodecs
-
         TypeCodecs.clear()
         TypeCodecs.register(
             Point,
@@ -589,21 +552,19 @@ class TestNestedExternalTypes:
 
         node = NamedPointsNode(points={"origin": Point(0, 0), "target": Point(10, 20)})
 
-        serialized = to_dict(node)
+        serialized = to_builtins(node)
         assert serialized == {
             "tag": "named_points_node",
             "points": {"origin": [0, 0], "target": [10, 20]},
         }
 
-        deserialized = from_dict(serialized)
+        deserialized = from_builtins(serialized)
         assert isinstance(deserialized, NamedPointsNode)
         assert deserialized.points["origin"] == Point(0, 0)
         assert deserialized.points["target"] == Point(10, 20)
 
     def test_optional_external_type(self) -> None:
         """Test node with optional external type field."""
-        from typedsl.codecs import TypeCodecs
-
         TypeCodecs.clear()
         TypeCodecs.register(
             Point,
@@ -616,18 +577,18 @@ class TestNestedExternalTypes:
 
         # With value
         node_with = OptionalPointNode(location=Point(5, 5))
-        serialized_with = to_dict(node_with)
+        serialized_with = to_builtins(node_with)
         assert serialized_with == {"tag": "optional_point_node", "location": [5, 5]}
 
-        deserialized_with = from_dict(serialized_with)
+        deserialized_with = from_builtins(serialized_with)
         assert deserialized_with.location == Point(5, 5)
 
         # With None
         node_none = OptionalPointNode(location=None)
-        serialized_none = to_dict(node_none)
+        serialized_none = to_builtins(node_none)
         assert serialized_none == {"tag": "optional_point_node", "location": None}
 
-        deserialized_none = from_dict(serialized_none)
+        deserialized_none = from_builtins(serialized_none)
         assert deserialized_none.location is None
 
 
@@ -652,13 +613,13 @@ class TestNestedBuiltinTypes:
             ]
         )
 
-        serialized = to_dict(node)
+        serialized = to_builtins(node)
         assert serialized == {
             "tag": "events_node",
             "timestamps": ["2024-01-01T00:00:00", "2024-06-15T12:30:00"],
         }
 
-        deserialized = from_dict(serialized)
+        deserialized = from_builtins(serialized)
         assert isinstance(deserialized, EventsNode)
         assert len(deserialized.timestamps) == 2
         assert all(isinstance(ts, datetime) for ts in deserialized.timestamps)
@@ -671,13 +632,13 @@ class TestNestedBuiltinTypes:
 
         node = PricesNode(prices={"apple": Decimal("1.99"), "banana": Decimal("0.50")})
 
-        serialized = to_dict(node)
+        serialized = to_builtins(node)
         assert serialized == {
             "tag": "prices_node",
             "prices": {"apple": "1.99", "banana": "0.50"},
         }
 
-        deserialized = from_dict(serialized)
+        deserialized = from_builtins(serialized)
         assert isinstance(deserialized, PricesNode)
         assert deserialized.prices["apple"] == Decimal("1.99")
         assert isinstance(deserialized.prices["apple"], Decimal)
@@ -693,8 +654,6 @@ class TestMixedTypes:
 
     def test_node_with_multiple_special_types(self) -> None:
         """Test node with multiple external and builtin type fields."""
-        from typedsl.codecs import TypeCodecs
-
         TypeCodecs.clear()
         TypeCodecs.register(
             Point,
@@ -715,8 +674,8 @@ class TestMixedTypes:
             data=b"binary",
         )
 
-        serialized = to_dict(original)
-        deserialized = from_dict(serialized)
+        serialized = to_builtins(original)
+        deserialized = from_builtins(serialized)
 
         assert isinstance(deserialized, ComplexNode)
         assert deserialized.location == Point(1.5, 2.5)
@@ -735,8 +694,6 @@ class TestCodecErrors:
 
     def test_serialize_unregistered_external_type_raises(self) -> None:
         """Test that serializing unregistered external type raises error."""
-        from typedsl.codecs import TypeCodecs
-
         TypeCodecs.clear()
 
         class UnknownType:
@@ -760,7 +717,7 @@ class TestCodecErrors:
         data = {"tag": "date_node_bad", "day": "not-a-valid-date"}
 
         with pytest.raises(ValueError):
-            from_dict(data)
+            from_builtins(data)
 
 
 # =============================================================================
@@ -773,8 +730,6 @@ class TestWalrusPatternUsage:
 
     def test_walrus_pattern_with_registered_type(self) -> None:
         """Verify the walrus pattern works for codec lookup."""
-        from typedsl.codecs import TypeCodecs
-
         TypeCodecs.clear()
         TypeCodecs.register(
             Point,
@@ -793,8 +748,6 @@ class TestWalrusPatternUsage:
 
     def test_walrus_pattern_with_unregistered_type(self) -> None:
         """Verify the walrus pattern correctly handles unregistered types."""
-        from typedsl.codecs import TypeCodecs
-
         TypeCodecs.clear()
 
         class NotRegistered:
@@ -818,8 +771,6 @@ class TestRecursiveEncoding:
 
     def test_encoder_returns_nested_nodes(self) -> None:
         """Test external type whose encoder returns objects needing further encoding."""
-        from typedsl.codecs import TypeCodecs
-
         TypeCodecs.clear()
 
         @dataclass
@@ -839,7 +790,7 @@ class TestRecursiveEncoding:
             data=Container(items=[datetime(2024, 1, 1), datetime(2024, 6, 15)])
         )
 
-        serialized = to_dict(node)
+        serialized = to_builtins(node)
 
         # The datetimes inside should be encoded to ISO strings
         assert serialized == {
