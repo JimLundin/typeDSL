@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from typedsl.codecs import from_builtins, to_builtins
 
@@ -48,4 +48,4 @@ def from_json(s: str) -> Node[Any] | Ref[Any]:
     if "tag" not in data:
         msg = "Missing required 'tag' field"
         raise KeyError(msg)
-    return from_builtins(data)
+    return cast("Node[Any] | Ref[Any]", from_builtins(data))
