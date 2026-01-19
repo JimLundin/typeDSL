@@ -7,8 +7,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
+from typedsl.codecs import from_builtins, to_builtins
 from typedsl.nodes import Node, Ref
-from typedsl.serialization import from_dict, to_dict
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -65,19 +65,19 @@ class Program:
             raise KeyError(msg)
         return cast("X", self.nodes[ref.id])
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_builtins(self) -> dict[str, Any]:
         """Serialize program to dictionary."""
         return {
-            "root": to_dict(self.root),
-            "nodes": {k: to_dict(v) for k, v in self.nodes.items()},
+            "root": to_builtins(self.root),
+            "nodes": {k: to_builtins(v) for k, v in self.nodes.items()},
         }
 
     def to_json(self) -> str:
         """Serialize program to JSON string."""
-        return json.dumps(self.to_dict(), indent=2)
+        return json.dumps(self.to_builtins(), indent=2)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Program:
+    def from_builtins(cls, data: dict[str, Any]) -> Program:
         """Deserialize program from dictionary.
 
         Args:
@@ -98,14 +98,16 @@ class Program:
             msg = "Missing required key 'nodes' in program data"
             raise KeyError(msg)
 
-        root = cast("Node[Any] | Ref[Node[Any]]", from_dict(data["root"]))
-        nodes = {k: cast("Node[Any]", from_dict(v)) for k, v in data["nodes"].items()}
+        root = cast("Node[Any] | Ref[Node[Any]]", from_builtins(data["root"]))
+        nodes = {
+            k: cast("Node[Any]", from_builtins(v)) for k, v in data["nodes"].items()
+        }
         return cls(root, nodes)
 
     @classmethod
     def from_json(cls, s: str) -> Program:
         """Deserialize program from JSON string."""
-        return cls.from_dict(json.loads(s))
+        return cls.from_builtins(json.loads(s))
 
 
 class Interpreter[Ctx, R](ABC):

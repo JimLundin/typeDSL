@@ -176,7 +176,7 @@ class TestProgramResolve:
 class TestProgramSerialization:
     """Test Program serialization methods."""
 
-    def test_to_dict_simple(self) -> None:
+    def test_to_builtins_simple(self) -> None:
         """Test serializing simple Program to dict."""
 
         class Num(Node[int], tag="num_ast_dict"):
@@ -187,7 +187,7 @@ class TestProgramSerialization:
             nodes={"n1": Num(value=42), "n2": Num(value=100)},
         )
 
-        result = prog.to_dict()
+        result = prog.to_builtins()
 
         assert result["root"]["tag"] == "ref"
         assert result["root"]["id"] == "n1"
@@ -197,7 +197,7 @@ class TestProgramSerialization:
         assert result["nodes"]["n1"]["tag"] == "num_ast_dict"
         assert result["nodes"]["n1"]["value"] == 42
 
-    def test_to_dict_with_refs(self) -> None:
+    def test_to_builtins_with_refs(self) -> None:
         """Test serializing Program with references."""
 
         class Val(Node[int], tag="val_ast_dict_ref"):
@@ -216,7 +216,7 @@ class TestProgramSerialization:
             },
         )
 
-        result = prog.to_dict()
+        result = prog.to_builtins()
 
         assert result["root"]["tag"] == "ref"
         assert result["root"]["id"] == "result"
@@ -256,35 +256,35 @@ class TestProgramSerialization:
 class TestProgramDeserialization:
     """Test Program deserialization methods."""
 
-    def test_from_dict_missing_root_key(self) -> None:
-        """Test that from_dict raises error when 'root' key is missing."""
+    def test_from_builtins_missing_root_key(self) -> None:
+        """Test that from_builtins raises error when 'root' key is missing."""
         data = {"nodes": {}}  # Missing 'root' key
 
         with pytest.raises(KeyError, match="Missing required key 'root'"):
-            Program.from_dict(data)
+            Program.from_builtins(data)
 
-    def test_from_dict_missing_nodes_key(self) -> None:
-        """Test that from_dict raises error when 'nodes' key is missing."""
+    def test_from_builtins_missing_nodes_key(self) -> None:
+        """Test that from_builtins raises error when 'nodes' key is missing."""
         data = {"root": "test"}  # Missing 'nodes' key
 
         with pytest.raises(KeyError, match="Missing required key 'nodes'"):
-            Program.from_dict(data)
+            Program.from_builtins(data)
 
-    def test_from_dict_simple(self) -> None:
+    def test_from_builtins_simple(self) -> None:
         """Test deserializing simple Program from dict."""
 
-        class Number(Node[int], tag="number_ast_from_dict"):
+        class Number(Node[int], tag="number_ast_from_builtins"):
             value: int
 
         data = {
             "root": {"tag": "ref", "id": "n1"},
             "nodes": {
-                "n1": {"tag": "number_ast_from_dict", "value": 42},
-                "n2": {"tag": "number_ast_from_dict", "value": 100},
+                "n1": {"tag": "number_ast_from_builtins", "value": 42},
+                "n2": {"tag": "number_ast_from_builtins", "value": 100},
             },
         }
 
-        prog = Program.from_dict(data)
+        prog = Program.from_builtins(data)
 
         assert isinstance(prog.root, Ref)
         assert prog.root.id == "n1"
@@ -292,30 +292,30 @@ class TestProgramDeserialization:
         assert isinstance(prog.nodes["n1"], Number)
         assert prog.nodes["n1"].value == 42
 
-    def test_from_dict_with_refs(self) -> None:
+    def test_from_builtins_with_refs(self) -> None:
         """Test deserializing Program with references."""
 
-        class Leaf(Node[str], tag="leaf_ast_from_dict_ref"):
+        class Leaf(Node[str], tag="leaf_ast_from_builtins_ref"):
             text: str
 
-        class Branch(Node[str], tag="branch_ast_from_dict_ref"):
+        class Branch(Node[str], tag="branch_ast_from_builtins_ref"):
             left: Ref[Node[str]]
             right: Ref[Node[str]]
 
         data = {
             "root": {"tag": "ref", "id": "root"},
             "nodes": {
-                "a": {"tag": "leaf_ast_from_dict_ref", "text": "hello"},
-                "b": {"tag": "leaf_ast_from_dict_ref", "text": "world"},
+                "a": {"tag": "leaf_ast_from_builtins_ref", "text": "hello"},
+                "b": {"tag": "leaf_ast_from_builtins_ref", "text": "world"},
                 "root": {
-                    "tag": "branch_ast_from_dict_ref",
+                    "tag": "branch_ast_from_builtins_ref",
                     "left": {"tag": "ref", "id": "a"},
                     "right": {"tag": "ref", "id": "b"},
                 },
             },
         }
 
-        prog = Program.from_dict(data)
+        prog = Program.from_builtins(data)
 
         assert isinstance(prog.root, Ref)
         assert prog.root.id == "root"
@@ -394,8 +394,8 @@ class TestProgramRoundTrip:
             },
         )
 
-        serialized = original.to_dict()
-        deserialized = Program.from_dict(serialized)
+        serialized = original.to_builtins()
+        deserialized = Program.from_builtins(serialized)
 
         assert deserialized.root == original.root
         assert len(deserialized.nodes) == len(original.nodes)
@@ -422,8 +422,8 @@ class TestProgramRoundTrip:
             },
         )
 
-        serialized = original.to_dict()
-        deserialized = Program.from_dict(serialized)
+        serialized = original.to_builtins()
+        deserialized = Program.from_builtins(serialized)
 
         assert deserialized.root == original.root
         assert len(deserialized.nodes) == 3
@@ -577,11 +577,11 @@ class TestProgramEdgeCases:
             nodes={"opt": Optional(required="value", optional=None)},
         )
 
-        result = prog.to_dict()
+        result = prog.to_builtins()
         assert result["nodes"]["opt"]["optional"] is None
 
         # Round trip
-        restored = Program.from_dict(result)
+        restored = Program.from_builtins(result)
         assert restored.nodes["opt"].optional is None
 
     def test_empty_program_serialization(self) -> None:
@@ -592,12 +592,12 @@ class TestProgramEdgeCases:
 
         prog = Program(root=Empty())
 
-        result = prog.to_dict()
+        result = prog.to_builtins()
         assert result["root"]["tag"] == "empty_prog"
         assert len(result["nodes"]) == 0
 
         # Round trip
-        restored = Program.from_dict(result)
+        restored = Program.from_builtins(result)
         assert isinstance(restored.root, Empty)
         assert len(restored.nodes) == 0
 
@@ -672,8 +672,8 @@ class TestProgramIntegrationExamples:
         assert prog.resolve(t2.input) is prog.nodes["input"]
 
         # Verify round-trip
-        serialized = prog.to_dict()
-        restored = Program.from_dict(serialized)
+        serialized = prog.to_builtins()
+        restored = Program.from_builtins(serialized)
         assert restored.root == prog.root
         assert len(restored.nodes) == len(prog.nodes)
 

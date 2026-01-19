@@ -1,12 +1,21 @@
 """typeDSL - Type-safe AST node system for Python 3.12+."""
 
 from typedsl.adapters import (
-    # Format adapters
+    # Legacy format adapter (for backwards compatibility during transition)
     JSONEncoder,
 )
 from typedsl.ast import (
     Interpreter,
     Program,
+)
+from typedsl.codecs import (
+    TypeCodecs,
+    from_builtins,
+    to_builtins,
+)
+from typedsl.formats.json import (
+    from_json,
+    to_json,
 )
 from typedsl.nodes import (
     Child,
@@ -23,13 +32,6 @@ from typedsl.schema import (
     # Schema extraction
     extract_type,
     node_schema,
-)
-from typedsl.serialization import (
-    from_dict,
-    from_json,
-    # Serialization
-    to_dict,
-    to_json,
 )
 from typedsl.types import (
     BoolType,
@@ -98,6 +100,7 @@ __all__ = [
     "StrType",
     "TimeType",
     "TupleType",
+    "TypeCodecs",
     # Type definitions
     "TypeDef",
     "TypeParameter",
@@ -106,10 +109,10 @@ __all__ = [
     "all_schemas",
     # Schema extraction
     "extract_type",
-    "from_dict",
+    "from_builtins",
     "from_json",
     "node_schema",
     # Serialization
-    "to_dict",
+    "to_builtins",
     "to_json",
 ]

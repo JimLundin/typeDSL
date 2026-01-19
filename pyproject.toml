@@ -88,3 +88,13 @@ ignore = [
     "PLR0911",  # multiple returns needed for type dispatch
     "PLR0912",  # multiple branches needed for type dispatch
 ]
+"src/typedsl/codecs.py" = [
+    "ANN401",   # serialization handles arbitrary values
+    "C901",     # type dispatch functions are inherently complex
+    "PLR0911",  # multiple returns needed for type dispatch
+    "PLR0912",  # multiple branches needed for type dispatch
+]
+"src/typedsl/formats/*.py" = [
+    "ANN401",   # serialization handles arbitrary values
+    "TRY004",   # ValueError is more appropriate for invalid data format
+]
