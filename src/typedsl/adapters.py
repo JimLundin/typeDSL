@@ -18,11 +18,11 @@ from typedsl.nodes import Node, Ref
 from typedsl.types import TypeDef
 
 
-def _serialize_value(value: Any) -> Any:
+def serialize_value(value: Any) -> Any:
     """Recursively convert a Python value to JSON-compatible format."""
     if isinstance(value, Node):
         result = {
-            f.name: _serialize_value(getattr(value, f.name))
+            f.name: serialize_value(getattr(value, f.name))
             for f in fields(value)
             if not f.name.startswith("_")
         }
@@ -32,7 +32,7 @@ def _serialize_value(value: Any) -> Any:
         return {"tag": "ref", "id": value.id}
     if isinstance(value, TypeDef):
         result = {
-            f.name: _serialize_value(getattr(value, f.name))
+            f.name: serialize_value(getattr(value, f.name))
             for f in fields(value)
             if not f.name.startswith("_")
         }
@@ -40,15 +40,15 @@ def _serialize_value(value: Any) -> Any:
         return result
     # Sets and sequences (excluding str/bytes) -> JSON arrays
     if isinstance(value, AbstractSet):
-        return [_serialize_value(item) for item in value]
+        return [serialize_value(item) for item in value]
     if isinstance(value, Sequence) and not isinstance(value, str | bytes):
-        return [_serialize_value(item) for item in value]
+        return [serialize_value(item) for item in value]
     if isinstance(value, Mapping):
-        return {k: _serialize_value(v) for k, v in value.items()}
+        return {k: serialize_value(v) for k, v in value.items()}
     # Generic dataclass support (for NodeSchema, FieldSchema, etc.)
     if is_dataclass(value) and not isinstance(value, type):
         return {
-            f.name: _serialize_value(getattr(value, f.name))
+            f.name: serialize_value(getattr(value, f.name))
             for f in fields(value)
             if not f.name.startswith("_")
         }
@@ -60,7 +60,7 @@ class JSONEncoder(json.JSONEncoder):
 
     def default(self, o: Any) -> Any:
         """Handle non-JSON-native types."""
-        result = _serialize_value(o)
+        result = serialize_value(o)
         if result is not o:
             return result
         return super().default(o)
