@@ -213,7 +213,8 @@ def to_builtins(obj: Any) -> Any:
 
     # 2. Node objects
     if isinstance(obj, Node):
-        result: dict[str, Any] = {"tag": typ.tag}
+        node_cls: type[Node[Any]] = type(obj)
+        result: dict[str, Any] = {"tag": node_cls.tag}
         for f in fields(obj):
             if not f.name.startswith("_"):
                 result[f.name] = to_builtins(getattr(obj, f.name))
@@ -225,7 +226,8 @@ def to_builtins(obj: Any) -> Any:
 
     # 4. TypeDef objects (for schema serialization)
     if isinstance(obj, TypeDef):
-        result = {"tag": typ.tag}
+        typedef_cls: type[TypeDef] = type(obj)
+        result = {"tag": typedef_cls.tag}
         for f in fields(obj):
             if not f.name.startswith("_"):
                 result[f.name] = to_builtins(getattr(obj, f.name))
