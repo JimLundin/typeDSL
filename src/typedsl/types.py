@@ -52,14 +52,17 @@ class TypeDef:
         TypeDef.registry[cls.tag] = cls
 
     @classmethod
-    def register[T](
+    def _register_external[T](
         cls,
         python_type: type[T],
         *,
         encode: Callable[[T], dict[str, Any]],
         decode: Callable[[dict[str, Any]], T],
     ) -> type[T]:
-        """Register an external type for serialization. Returns the type unchanged."""
+        """Register an external type for schema extraction. Internal use only.
+
+        Called automatically by TypeCodecs.register() for non-builtin types.
+        """
         module = python_type.__module__
         name = python_type.__name__
 

@@ -112,7 +112,7 @@ class TypeCodecs:
             ) -> Any:
                 return dec(data.get("_data", data))
 
-            TypeDef.register(typ, encode=dict_encode, decode=dict_decode)
+            TypeDef._register_external(typ, encode=dict_encode, decode=dict_decode)
             cls._external_types.add(typ)
 
     @classmethod

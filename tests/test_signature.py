@@ -4,10 +4,9 @@ import json
 
 import pytest
 
-from typedsl.adapters import JSONEncoder
+from typedsl.codecs import to_builtins
 from typedsl.nodes import Node
 from typedsl.schema import node_schema
-from typedsl.serialization import to_dict
 
 
 class TestNodeWithSignature:
@@ -125,7 +124,7 @@ class TestSignatureSerialization:
             right: float
 
         schema = node_schema(MathAdd)
-        serialized = json.loads(json.dumps(schema, cls=JSONEncoder))
+        serialized = json.loads(json.dumps(to_builtins(schema)))
 
         assert serialized["tag"] == "math.add.1.0"
         assert serialized["signature"] == {
@@ -142,7 +141,7 @@ class TestSignatureSerialization:
             value: int
 
         node = CalcOp(op="add", value=42)
-        result = to_dict(node)
+        result = to_builtins(node)
 
         # Instance serialization uses only the composed tag
         assert result["tag"] == "calculator.operation.2.0"
@@ -161,7 +160,7 @@ class TestSignatureSerialization:
 
         # Instance does not
         instance = TypedNode(data="test")
-        result = to_dict(instance)
+        result = to_builtins(instance)
         assert result == {"tag": "mylib.typed", "data": "test"}
 
 
