@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any, cast
 
-from typedsl.adapters import JSONEncoder, _serialize_value, deserialize_node
+from typedsl.adapters import JSONEncoder, deserialize_node, serialize_value
 from typedsl.nodes import Node, Ref
 
 if TYPE_CHECKING:
@@ -24,7 +24,7 @@ def to_dict(obj: Node[Any] | Ref[Any] | TypeDef) -> dict[str, Any]:
         Dictionary representation of the object
 
     """
-    return cast("dict[str, Any]", _serialize_value(obj))
+    return cast("dict[str, Any]", serialize_value(obj))
 
 
 def from_dict(data: dict[str, Any]) -> Node[Any] | Ref[Any]:
