@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
-from typedsl.codecs import from_builtins, to_builtins
+from typedsl.codecs import from_builtins_node, to_builtins
 from typedsl.nodes import Node, Ref
 
 if TYPE_CHECKING:
@@ -98,10 +98,14 @@ class Program:
             msg = "Missing required key 'nodes' in program data"
             raise KeyError(msg)
 
-        root = cast("Node[Any] | Ref[Node[Any]]", from_builtins(data["root"]))
-        nodes = {
-            k: cast("Node[Any]", from_builtins(v)) for k, v in data["nodes"].items()
-        }
+        root = from_builtins_node(data["root"])
+        nodes: dict[str, Node[Any]] = {}
+        for k, v in data["nodes"].items():
+            node = from_builtins_node(v)
+            if not isinstance(node, Node):
+                msg = f"Expected Node in nodes dict, got {type(node).__name__}"
+                raise TypeError(msg)
+            nodes[k] = node
         return cls(root, nodes)
 
     @classmethod

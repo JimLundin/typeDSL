@@ -6,7 +6,7 @@ import base64
 import types
 from collections.abc import Callable, Mapping, Sequence
 from collections.abc import Set as AbstractSet
-from dataclasses import fields, is_dataclass
+from dataclasses import dataclass, fields, is_dataclass
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import (
@@ -40,6 +40,15 @@ _SCHEMA_BUILTINS: set[type] = {
 }
 
 
+@dataclass(frozen=True)
+class ExternalTypeRecord:
+    """Record for external type registration (for schema extraction)."""
+
+    python_type: type
+    module: str
+    name: str
+
+
 class TypeCodecs:
     """Unified registry for type serialization codecs.
 
@@ -64,7 +73,7 @@ class TypeCodecs:
     _registry: ClassVar[
         dict[type, tuple[Callable[[Any], Any], Callable[[Any], Any]]]
     ] = {}
-    _external_types: ClassVar[set[type]] = set()  # Track external types for cleanup
+    _external_types: ClassVar[dict[type, ExternalTypeRecord]] = {}
 
     @classmethod
     def register(
@@ -76,8 +85,7 @@ class TypeCodecs:
         """Register encode/decode functions for a type.
 
         For external types (not standard builtins), this also registers
-        the type with the schema system so it can be used in node fields
-        and extracted via all_schemas().
+        the type for schema extraction via all_schemas().
 
         Args:
             typ: The type to register (e.g., datetime, DataFrame)
@@ -94,26 +102,13 @@ class TypeCodecs:
         """
         cls._registry[typ] = (encode, decode)
 
-        # For external types, also register with TypeDef for schema support
-        if typ not in _SCHEMA_BUILTINS:
-            # Wrap encode to return dict (TypeDef expects dict output)
-            def dict_encode(
-                obj: Any,
-                enc: Callable[[Any], Any] = encode,
-            ) -> dict[str, Any]:
-                result = enc(obj)
-                if isinstance(result, dict):
-                    return result
-                return {"_data": result}
-
-            def dict_decode(
-                data: dict[str, Any],
-                dec: Callable[[Any], Any] = decode,
-            ) -> Any:
-                return dec(data.get("_data", data))
-
-            TypeDef._register_external(typ, encode=dict_encode, decode=dict_decode)
-            cls._external_types.add(typ)
+        # Track external types for schema extraction
+        if typ not in _SCHEMA_BUILTINS and typ not in cls._external_types:
+            cls._external_types[typ] = ExternalTypeRecord(
+                python_type=typ,
+                module=typ.__module__,
+                name=typ.__name__,
+            )
 
     @classmethod
     def get(cls, typ: type) -> tuple[Callable[[Any], Any], Callable[[Any], Any]] | None:
@@ -121,13 +116,13 @@ class TypeCodecs:
         return cls._registry.get(typ)
 
     @classmethod
-    def clear(cls) -> None:
-        """Clear codec registry and re-register builtins.
+    def get_external_type(cls, typ: type) -> ExternalTypeRecord | None:
+        """Get external type record for schema extraction."""
+        return cls._external_types.get(typ)
 
-        Note: External types remain registered in TypeDef for schema extraction.
-        This is intentional - schema registration is "permanent" for the module's
-        lifetime, while codec registration can be reset for testing.
-        """
+    @classmethod
+    def clear(cls) -> None:
+        """Clear codec registry and re-register builtins."""
         cls._registry.clear()
         _register_builtins()
 
@@ -295,6 +290,35 @@ def from_builtins(data: Any, type_hint: type | None = None) -> Any:
 
     # Primitives
     return data
+
+
+def from_builtins_node(data: dict[str, Any]) -> Node[Any] | Ref[Any]:
+    """Deserialize a tagged dict to a Node or Ref.
+
+    This is a typed wrapper around from_builtins for when you know
+    the input is a tagged node/ref dict.
+
+    Args:
+        data: Dict with 'tag' field
+
+    Returns:
+        Deserialized Node or Ref
+
+    Raises:
+        KeyError: If 'tag' field is missing
+        ValueError: If tag is unknown
+
+    """
+    if "tag" not in data:
+        msg = "Missing required 'tag' field"
+        raise KeyError(msg)
+    tag = data["tag"]
+    if tag == "ref":
+        return Ref(id=data["id"])
+    if tag in Node.registry:
+        return _deserialize_node(data)
+    msg = f"Unknown tag '{tag}'"
+    raise ValueError(msg)
 
 
 def _deserialize_node(data: dict[str, Any]) -> Node[Any]:

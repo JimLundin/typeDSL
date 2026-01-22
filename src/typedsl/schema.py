@@ -18,6 +18,7 @@ from typing import (
     get_type_hints,
 )
 
+from typedsl.codecs import TypeCodecs
 from typedsl.nodes import Node, Ref
 from typedsl.types import (
     BoolType,
@@ -27,6 +28,7 @@ from typedsl.types import (
     DecimalType,
     DictType,
     DurationType,
+    ExternalType,
     FloatType,
     FrozenSetType,
     IntType,
@@ -111,9 +113,8 @@ def extract_type(py_type: Any) -> TypeDef:
         )
 
     # Handle registered external types
-    custom_typedef = TypeDef.get_registered_type(py_type)
-    if custom_typedef is not None:
-        return custom_typedef
+    if record := TypeCodecs.get_external_type(py_type):
+        return ExternalType(module=record.module, name=record.name)
 
     # Expand PEP 695 type aliases
     if isinstance(origin, TypeAliasType):

@@ -5,27 +5,12 @@ from __future__ import annotations
 import types
 from dataclasses import dataclass
 from typing import (
-    TYPE_CHECKING,
     Any,
     ClassVar,
     dataclass_transform,
     get_args,
     get_origin,
 )
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
-
-
-@dataclass(frozen=True)
-class ExternalTypeRecord[T]:
-    """Record for external type registration."""
-
-    python_type: type[T]
-    module: str  # Full module path, e.g., "pandas.core.frame"
-    name: str  # Class name, e.g., "DataFrame"
-    encode: Callable[[T], dict[str, Any]]
-    decode: Callable[[dict[str, Any]], T]
 
 
 @dataclass(frozen=True)
@@ -35,7 +20,6 @@ class TypeDef:
 
     tag: ClassVar[str]
     registry: ClassVar[dict[str, type[TypeDef]]] = {}
-    _external_types: ClassVar[dict[type, ExternalTypeRecord[Any]]] = {}
 
     def __init_subclass__(cls, tag: str | None = None) -> None:
         """Register typedef subclass with automatic tag derivation."""
@@ -50,51 +34,6 @@ class TypeDef:
             raise ValueError(msg)
 
         TypeDef.registry[cls.tag] = cls
-
-    @classmethod
-    def _register_external[T](
-        cls,
-        python_type: type[T],
-        *,
-        encode: Callable[[T], dict[str, Any]],
-        decode: Callable[[dict[str, Any]], T],
-    ) -> type[T]:
-        """Register an external type for schema extraction. Internal use only.
-
-        Called automatically by TypeCodecs.register() for non-builtin types.
-        """
-        module = python_type.__module__
-        name = python_type.__name__
-
-        if python_type in cls._external_types:
-            existing = cls._external_types[python_type]
-            # Idempotent if same module/name
-            if existing.module == module and existing.name == name:
-                return python_type
-            msg = (
-                f"Type {python_type} already registered as "
-                f"{existing.module}.{existing.name}"
-            )
-            raise ValueError(msg)
-
-        # Create and store record
-        record = ExternalTypeRecord(
-            python_type=python_type,
-            module=module,
-            name=name,
-            encode=encode,
-            decode=decode,
-        )
-        cls._external_types[python_type] = record
-        return python_type
-
-    @classmethod
-    def get_registered_type(cls, python_type: type) -> TypeDef | None:
-        """Get ExternalType for a registered Python type, or None if not registered."""
-        if python_type in cls._external_types:
-            record = cls._external_types[python_type]
-            return ExternalType(module=record.module, name=record.name)
-        return None
 
 
 class IntType(TypeDef, tag="int"):
