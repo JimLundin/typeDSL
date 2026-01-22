@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import datetime
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
@@ -84,6 +84,19 @@ class TypeCheckResult:
 
 
 # =============================================================================
+# Check context: immutable state passed through checking functions
+# =============================================================================
+
+
+@dataclass
+class CheckContext:
+    """Context for type checking operations."""
+
+    program: Program | None = None
+    type_bindings: dict[str, TypeDef] = field(default_factory=dict)
+
+
+# =============================================================================
 # Type name formatting: TypeDef -> str
 # =============================================================================
 
@@ -112,8 +125,7 @@ _TYPE_FORMATTERS: dict[type[TypeDef], Callable[[Any], str]] = {
 
 def type_name(typedef: TypeDef) -> str:
     """Get a human-readable name for a TypeDef."""
-    formatter = _TYPE_FORMATTERS.get(type(typedef))
-    if formatter is not None:
+    if formatter := _TYPE_FORMATTERS.get(type(typedef)):
         return formatter(typedef)
     return typedef.tag
 
@@ -223,72 +235,84 @@ _VALIDATORS: dict[type[TypeDef], Callable[[Any, str], TypeCheckError | None]] = 
 
 
 # =============================================================================
-# Child checkers: (tc, value, expected, path) -> None
+# Child checkers: (ctx, value, expected, path) -> list[TypeCheckError]
 # =============================================================================
 
 
 def _check_list_children(
-    tc: TypeChecker,
+    ctx: CheckContext,
     v: Any,
     e: ListType,
     p: str,
-) -> None:
+) -> list[TypeCheckError]:
+    errors: list[TypeCheckError] = []
     for i, item in enumerate(v):
-        tc._check_value(item, e.element, f"{p}[{i}]")
+        errors.extend(_check_value(ctx, item, e.element, f"{p}[{i}]"))
+    return errors
 
 
 def _check_set_children(
-    tc: TypeChecker,
+    ctx: CheckContext,
     v: Any,
     e: SetType | FrozenSetType,
     p: str,
-) -> None:
+) -> list[TypeCheckError]:
+    errors: list[TypeCheckError] = []
     for i, item in enumerate(v):
-        tc._check_value(item, e.element, f"{p}{{{i}}}")
+        errors.extend(_check_value(ctx, item, e.element, f"{p}{{{i}}}"))
+    return errors
 
 
 def _check_sequence_children(
-    tc: TypeChecker,
+    ctx: CheckContext,
     v: Any,
     e: SequenceType,
     p: str,
-) -> None:
+) -> list[TypeCheckError]:
+    errors: list[TypeCheckError] = []
     for i, item in enumerate(v):
-        tc._check_value(item, e.element, f"{p}[{i}]")
+        errors.extend(_check_value(ctx, item, e.element, f"{p}[{i}]"))
+    return errors
 
 
 def _check_tuple_children(
-    tc: TypeChecker,
+    ctx: CheckContext,
     v: Any,
     e: TupleType,
     p: str,
-) -> None:
+) -> list[TypeCheckError]:
     if len(v) != len(e.elements):
-        tc._errors.append(
+        return [
             TypeCheckError(
                 p,
                 f"tuple[{len(e.elements)}]",
                 f"tuple[{len(v)}]",
                 f"Expected {len(e.elements)} elements, got {len(v)}",
             ),
-        )
-        return
+        ]
+    errors: list[TypeCheckError] = []
     for i, (item, elem_type) in enumerate(zip(v, e.elements, strict=False)):
-        tc._check_value(item, elem_type, f"{p}[{i}]")
+        errors.extend(_check_value(ctx, item, elem_type, f"{p}[{i}]"))
+    return errors
 
 
 def _check_dict_children(
-    tc: TypeChecker,
+    ctx: CheckContext,
     v: Any,
     e: DictType | MappingType,
     p: str,
-) -> None:
+) -> list[TypeCheckError]:
+    errors: list[TypeCheckError] = []
     for k, val in v.items():
-        tc._check_value(k, e.key, f"{p}[{k!r}].key")
-        tc._check_value(val, e.value, f"{p}[{k!r}]")
+        errors.extend(_check_value(ctx, k, e.key, f"{p}[{k!r}].key"))
+        errors.extend(_check_value(ctx, val, e.value, f"{p}[{k!r}]"))
+    return errors
 
 
-_CHILD_CHECKERS: dict[type[TypeDef], Callable[[TypeChecker, Any, Any, str], None]] = {
+_CHILD_CHECKERS: dict[
+    type[TypeDef],
+    Callable[[CheckContext, Any, Any, str], list[TypeCheckError]],
+] = {
     ListType: _check_list_children,
     SetType: _check_set_children,
     FrozenSetType: _check_set_children,
@@ -300,122 +324,154 @@ _CHILD_CHECKERS: dict[type[TypeDef], Callable[[TypeChecker, Any, Any, str], None
 
 
 # =============================================================================
-# Complex checkers: (tc, value, expected, path) -> None
+# Complex checkers: (ctx, value, expected, path) -> list[TypeCheckError]
 # =============================================================================
 
 
-def _check_literal(tc: TypeChecker, v: Any, e: LiteralType, p: str) -> None:
+def _check_literal(
+    ctx: CheckContext,
+    v: Any,
+    e: LiteralType,
+    p: str,
+) -> list[TypeCheckError]:
+    del ctx  # unused
     if v not in e.values:
-        tc._errors.append(
+        return [
             TypeCheckError(
                 p,
                 f"Literal{list(e.values)}",
                 repr(v),
                 f"Value {v!r} not in {list(e.values)}",
             ),
-        )
+        ]
+    return []
 
 
-def _check_union(tc: TypeChecker, v: Any, e: UnionType, p: str) -> None:
+def _check_union(
+    ctx: CheckContext,
+    v: Any,
+    e: UnionType,
+    p: str,
+) -> list[TypeCheckError]:
     for option in e.options:
-        test = TypeChecker()
-        test._program = tc._program
-        test._type_bindings = tc._type_bindings.copy()
-        test._check_value(v, option, "test")
-        if not test._errors:
-            return
+        test_ctx = CheckContext(
+            program=ctx.program,
+            type_bindings=ctx.type_bindings.copy(),
+        )
+        if not _check_value(test_ctx, v, option, "test"):
+            return []
     type_names = [type_name(opt) for opt in e.options]
-    tc._errors.append(
+    return [
         TypeCheckError(
             p,
             " | ".join(type_names),
             type(v).__name__,
             "Value matches no option in union",
         ),
-    )
+    ]
 
 
-def _check_node_type(tc: TypeChecker, v: Any, e: NodeType, p: str) -> None:
+def _check_node_type(
+    ctx: CheckContext,
+    v: Any,
+    e: NodeType,
+    p: str,
+) -> list[TypeCheckError]:
     if not isinstance(v, Node):
-        tc._errors.append(
+        return [
             TypeCheckError(
                 p,
                 e.node_tag,
                 type(v).__name__,
                 f"Expected node {e.node_tag}",
             ),
-        )
-        return
+        ]
     if v.tag != e.node_tag:
-        tc._errors.append(
+        return [
             TypeCheckError(
                 p,
                 e.node_tag,
                 v.tag,
                 f"Expected {e.node_tag}, got {v.tag}",
             ),
-        )
-        return
-    tc._check_node_impl(v, p)
+        ]
+    return _check_node_impl(ctx, v, p)
 
 
-def _check_return_type(tc: TypeChecker, v: Any, e: ReturnType, p: str) -> None:
+def _check_return_type(
+    ctx: CheckContext,
+    v: Any,
+    e: ReturnType,
+    p: str,
+) -> list[TypeCheckError]:
     if not isinstance(v, Node):
-        tc._errors.append(
+        return [
             TypeCheckError(
                 p,
                 f"Node[{type_name(e.returns)}]",
                 type(v).__name__,
                 f"Expected node returning {type_name(e.returns)}",
             ),
-        )
-        return
+        ]
     schema = node_schema(type(v))
-    if not tc._types_compatible(schema.returns, e.returns):
+    if not _types_compatible(ctx, schema.returns, e.returns):
         actual = type_name(schema.returns)
         expected = type_name(e.returns)
-        tc._errors.append(
+        return [
             TypeCheckError(
                 p,
                 f"Node[{expected}]",
                 f"Node[{actual}]",
                 f"Node returns {actual}, expected {expected}",
             ),
-        )
-        return
-    tc._check_node_impl(v, p)
+        ]
+    return _check_node_impl(ctx, v, p)
 
 
-def _check_ref_type(tc: TypeChecker, v: Any, e: RefType, p: str) -> None:
+def _check_ref_type(
+    ctx: CheckContext,
+    v: Any,
+    e: RefType,
+    p: str,
+) -> list[TypeCheckError]:
     if not isinstance(v, Ref):
-        tc._errors.append(
+        return [
             TypeCheckError(
                 p,
                 f"Ref[{type_name(e.target)}]",
                 type(v).__name__,
                 f"Expected Ref, got {type(v).__name__}",
             ),
-        )
-        return
-    if tc._program is not None:
-        tc._check_ref(v, p, e.target)
+        ]
+    if ctx.program is not None:
+        return _check_ref(ctx, v, p, e.target)
+    return []
 
 
-def _check_external_type(tc: TypeChecker, v: Any, e: ExternalType, p: str) -> None:
+def _check_external_type(
+    ctx: CheckContext,
+    v: Any,
+    e: ExternalType,
+    p: str,
+) -> list[TypeCheckError]:
+    del ctx  # unused
     value_type = type(v)
     if value_type.__module__ == e.module and value_type.__name__ == e.name:
-        return
-    tc._errors.append(
+        return []
+    return [
         TypeCheckError(
             p,
             f"{e.module}.{e.name}",
             type(v).__name__,
             f"Expected {e.name}, got {type(v).__name__}",
         ),
-    )
+    ]
 
 
-_COMPLEX_CHECKERS: dict[type[TypeDef], Callable[[TypeChecker, Any, Any, str], None]] = {
+_COMPLEX_CHECKERS: dict[
+    type[TypeDef],
+    Callable[[CheckContext, Any, Any, str], list[TypeCheckError]],
+] = {
     LiteralType: _check_literal,
     UnionType: _check_union,
     NodeType: _check_node_type,
@@ -426,29 +482,32 @@ _COMPLEX_CHECKERS: dict[type[TypeDef], Callable[[TypeChecker, Any, Any, str], No
 
 
 # =============================================================================
-# Type compatibility checkers
+# Type compatibility checking
 # =============================================================================
 
 
-def _compat_element(tc: TypeChecker, a: TypeDef, e: TypeDef) -> bool:
-    return tc._types_compatible(a.element, e.element)  # type: ignore[attr-defined]
+def _compat_element(ctx: CheckContext, a: TypeDef, e: TypeDef) -> bool:
+    return _types_compatible(ctx, a.element, e.element)  # type: ignore[attr-defined]
 
 
-def _compat_key_value(tc: TypeChecker, a: TypeDef, e: TypeDef) -> bool:
+def _compat_key_value(ctx: CheckContext, a: TypeDef, e: TypeDef) -> bool:
     return (
-        tc._types_compatible(a.key, e.key)  # type: ignore[attr-defined]
-        and tc._types_compatible(a.value, e.value)  # type: ignore[attr-defined]
+        _types_compatible(ctx, a.key, e.key)  # type: ignore[attr-defined]
+        and _types_compatible(ctx, a.value, e.value)  # type: ignore[attr-defined]
     )
 
 
-def _compat_tuple(tc: TypeChecker, a: TupleType, e: TupleType) -> bool:
+def _compat_tuple(ctx: CheckContext, a: TupleType, e: TupleType) -> bool:
     return len(a.elements) == len(e.elements) and all(
-        tc._types_compatible(ai, ei)
+        _types_compatible(ctx, ai, ei)
         for ai, ei in zip(a.elements, e.elements, strict=False)
     )
 
 
-_COMPAT_SAME_TYPE: dict[type[TypeDef], Callable[[TypeChecker, Any, Any], bool]] = {
+_COMPAT_SAME_TYPE: dict[
+    type[TypeDef],
+    Callable[[CheckContext, Any, Any], bool],
+] = {
     ListType: _compat_element,
     SetType: _compat_element,
     FrozenSetType: _compat_element,
@@ -456,13 +515,173 @@ _COMPAT_SAME_TYPE: dict[type[TypeDef], Callable[[TypeChecker, Any, Any], bool]] 
     DictType: _compat_key_value,
     MappingType: _compat_key_value,
     TupleType: _compat_tuple,
-    RefType: lambda tc, a, e: tc._types_compatible(a.target, e.target),
-    ReturnType: lambda tc, a, e: tc._types_compatible(a.returns, e.returns),
+    RefType: lambda ctx, a, e: _types_compatible(ctx, a.target, e.target),
+    ReturnType: lambda ctx, a, e: _types_compatible(ctx, a.returns, e.returns),
 }
 
 
+def _types_compatible(ctx: CheckContext, actual: TypeDef, expected: TypeDef) -> bool:
+    """Check if actual type is compatible with expected type."""
+    if actual == expected:
+        return True
+
+    exp_type = type(expected)
+    act_type = type(actual)
+
+    # Type parameters are compatible with anything
+    if exp_type in (TypeParameter, TypeParameterRef):
+        return True
+    if act_type in (TypeParameter, TypeParameterRef):
+        return True
+
+    # Union: actual must match at least one option
+    if exp_type is UnionType:
+        return any(
+            _types_compatible(ctx, actual, opt)
+            for opt in expected.options  # type: ignore[attr-defined]
+        )
+
+    # Covariance rules
+    if exp_type is FloatType and act_type is IntType:
+        return True
+    if exp_type is SequenceType and act_type is ListType:
+        return _types_compatible(
+            ctx,
+            actual.element,  # type: ignore[attr-defined]
+            expected.element,  # type: ignore[attr-defined]
+        )
+    if exp_type is MappingType and act_type is DictType:
+        return _types_compatible(
+            ctx,
+            actual.key,  # type: ignore[attr-defined]
+            expected.key,  # type: ignore[attr-defined]
+        ) and _types_compatible(
+            ctx,
+            actual.value,  # type: ignore[attr-defined]
+            expected.value,  # type: ignore[attr-defined]
+        )
+
+    # Different types are incompatible
+    if act_type is not exp_type:
+        return False
+
+    # Same type - check structural compatibility via dispatch
+    if compat_checker := _COMPAT_SAME_TYPE.get(exp_type):
+        return compat_checker(ctx, actual, expected)
+
+    return False
+
+
 # =============================================================================
-# TypeChecker class
+# Core checking functions
+# =============================================================================
+
+
+def _check_node_impl(
+    ctx: CheckContext,
+    node: Node[Any],
+    path: str,
+) -> list[TypeCheckError]:
+    """Check a node against its schema."""
+    errors: list[TypeCheckError] = []
+    schema = node_schema(type(node))
+    for f in schema.fields:
+        field_path = f"{path}.{f.name}"
+        errors.extend(_check_value(ctx, getattr(node, f.name), f.type, field_path))
+    return errors
+
+
+def _check_ref(
+    ctx: CheckContext,
+    ref: Ref[Any],
+    path: str,
+    expected_type: TypeDef | None,
+) -> list[TypeCheckError]:
+    """Check that a reference is valid and points to correct type."""
+    if ctx.program is None:
+        return []
+    if ref.id not in ctx.program.nodes:
+        return [
+            TypeCheckError(
+                path,
+                "valid ref",
+                f"Ref({ref.id!r})",
+                f"Reference {ref.id!r} not found",
+            ),
+        ]
+    if expected_type is None:
+        return []
+    target = ctx.program.nodes[ref.id]
+    exp_type = type(expected_type)
+    if exp_type is ReturnType:
+        schema = node_schema(type(target))
+        if not _types_compatible(ctx, schema.returns, expected_type.returns):  # type: ignore[attr-defined]
+            actual_ret = type_name(schema.returns)
+            expected_ret = type_name(expected_type.returns)  # type: ignore[attr-defined]
+            return [
+                TypeCheckError(
+                    path,
+                    f"Ref[Node[{expected_ret}]]",
+                    f"Ref[Node[{actual_ret}]]",
+                    f"Ref target returns {actual_ret}, expected {expected_ret}",
+                ),
+            ]
+    elif exp_type is NodeType and target.tag != expected_type.node_tag:  # type: ignore[attr-defined]
+        return [
+            TypeCheckError(
+                path,
+                f"Ref[{expected_type.node_tag}]",  # type: ignore[attr-defined]
+                f"Ref[{target.tag}]",
+                f"Ref target is {target.tag}, expected {expected_type.node_tag}",  # type: ignore[attr-defined]
+            ),
+        ]
+    return []
+
+
+def _check_value(
+    ctx: CheckContext,
+    value: Any,
+    expected: TypeDef,
+    path: str,
+) -> list[TypeCheckError]:
+    """Check a value against an expected type."""
+    exp_type = type(expected)
+
+    # Handle type parameters specially (they transform the check)
+    if exp_type is TypeParameterRef:
+        if expected.name in ctx.type_bindings:  # type: ignore[attr-defined]
+            return _check_value(ctx, value, ctx.type_bindings[expected.name], path)  # type: ignore[attr-defined]
+        return []
+    if exp_type is TypeParameter:
+        if expected.bound is not None:  # type: ignore[attr-defined]
+            return _check_value(ctx, value, expected.bound, path)  # type: ignore[attr-defined]
+        return []
+
+    # Try simple validator
+    if validator := _VALIDATORS.get(exp_type):
+        if error := validator(value, path):
+            return [error]
+        if child_checker := _CHILD_CHECKERS.get(exp_type):
+            return child_checker(ctx, value, expected, path)
+        return []
+
+    # Try complex checker
+    if checker := _COMPLEX_CHECKERS.get(exp_type):
+        return checker(ctx, value, expected, path)
+
+    # Unknown type
+    return [
+        TypeCheckError(
+            path,
+            type(expected).__name__,
+            type(value).__name__,
+            f"Unknown type: {expected}",
+        ),
+    ]
+
+
+# =============================================================================
+# TypeChecker class - thin wrapper around functional implementation
 # =============================================================================
 
 
@@ -471,9 +690,7 @@ class TypeChecker:
 
     def __init__(self) -> None:
         """Initialize a new type checker."""
-        self._errors: list[TypeCheckError] = []
-        self._program: Program | None = None
-        self._type_bindings: dict[str, TypeDef] = {}
+        self._ctx = CheckContext()
 
     def check_node(
         self,
@@ -482,164 +699,24 @@ class TypeChecker:
         program: Program | None = None,
     ) -> TypeCheckResult:
         """Type check a single node."""
-        self._errors = []
-        self._program = program
-        self._type_bindings = {}
-        self._check_node_impl(node, path="root")
-        return TypeCheckResult(errors=tuple(self._errors))
+        ctx = CheckContext(program=program)
+        errors = _check_node_impl(ctx, node, path="root")
+        return TypeCheckResult(errors=tuple(errors))
 
     def check_program(self, program: Program) -> TypeCheckResult:
         """Type check an entire program including all referenced nodes."""
-        self._errors = []
-        self._program = program
-        self._type_bindings = {}
+        ctx = CheckContext(program=program)
+        errors: list[TypeCheckError] = []
 
         if isinstance(program.root, Ref):
-            self._check_ref(program.root, path="root", expected_type=None)
+            errors.extend(_check_ref(ctx, program.root, "root", expected_type=None))
         else:
-            self._check_node_impl(program.root, path="root")
+            errors.extend(_check_node_impl(ctx, program.root, path="root"))
 
         for node_id, node in program.nodes.items():
-            self._check_node_impl(node, path=f"nodes[{node_id!r}]")
+            errors.extend(_check_node_impl(ctx, node, path=f"nodes[{node_id!r}]"))
 
-        return TypeCheckResult(errors=tuple(self._errors))
-
-    def _check_node_impl(self, node: Node[Any], path: str) -> None:
-        schema = node_schema(type(node))
-        for field in schema.fields:
-            self._check_value(
-                getattr(node, field.name),
-                field.type,
-                f"{path}.{field.name}",
-            )
-
-    def _check_value(self, value: Any, expected: TypeDef, path: str) -> None:
-        exp_type = type(expected)
-
-        # Handle type parameters specially (they transform the check)
-        if exp_type is TypeParameterRef:
-            if expected.name in self._type_bindings:  # type: ignore[attr-defined]
-                self._check_value(value, self._type_bindings[expected.name], path)  # type: ignore[attr-defined]
-            return
-        if exp_type is TypeParameter:
-            if expected.bound is not None:  # type: ignore[attr-defined]
-                self._check_value(value, expected.bound, path)  # type: ignore[attr-defined]
-            return
-
-        # Try simple validator
-        validator = _VALIDATORS.get(exp_type)
-        if validator is not None:
-            error = validator(value, path)
-            if error:
-                self._errors.append(error)
-                return
-            child_checker = _CHILD_CHECKERS.get(exp_type)
-            if child_checker:
-                child_checker(self, value, expected, path)
-            return
-
-        # Try complex checker
-        checker = _COMPLEX_CHECKERS.get(exp_type)
-        if checker is not None:
-            checker(self, value, expected, path)
-            return
-
-        # Unknown type
-        self._errors.append(
-            TypeCheckError(
-                path,
-                type(expected).__name__,
-                type(value).__name__,
-                f"Unknown type: {expected}",
-            ),
-        )
-
-    def _check_ref(
-        self,
-        ref: Ref[Any],
-        path: str,
-        expected_type: TypeDef | None,
-    ) -> None:
-        if self._program is None:
-            return
-        if ref.id not in self._program.nodes:
-            self._errors.append(
-                TypeCheckError(
-                    path,
-                    "valid ref",
-                    f"Ref({ref.id!r})",
-                    f"Reference {ref.id!r} not found",
-                ),
-            )
-            return
-        if expected_type is None:
-            return
-        target = self._program.nodes[ref.id]
-        exp_type = type(expected_type)
-        if exp_type is ReturnType:
-            schema = node_schema(type(target))
-            if not self._types_compatible(schema.returns, expected_type.returns):  # type: ignore[attr-defined]
-                actual_ret = type_name(schema.returns)
-                expected_ret = type_name(expected_type.returns)  # type: ignore[attr-defined]
-                self._errors.append(
-                    TypeCheckError(
-                        path,
-                        f"Ref[Node[{expected_ret}]]",
-                        f"Ref[Node[{actual_ret}]]",
-                        f"Ref target returns {actual_ret}, expected {expected_ret}",
-                    ),
-                )
-        elif exp_type is NodeType and target.tag != expected_type.node_tag:  # type: ignore[attr-defined]
-            self._errors.append(
-                TypeCheckError(
-                    path,
-                    f"Ref[{expected_type.node_tag}]",  # type: ignore[attr-defined]
-                    f"Ref[{target.tag}]",
-                    f"Ref target is {target.tag}, expected {expected_type.node_tag}",  # type: ignore[attr-defined]
-                ),
-            )
-
-    def _types_compatible(self, actual: TypeDef, expected: TypeDef) -> bool:
-        if actual == expected:
-            return True
-
-        exp_type = type(expected)
-        act_type = type(actual)
-
-        # Type parameters are compatible with anything
-        if exp_type in (TypeParameter, TypeParameterRef):
-            return True
-        if act_type in (TypeParameter, TypeParameterRef):
-            return True
-
-        # Union: actual must match at least one option
-        if exp_type is UnionType:
-            return any(
-                self._types_compatible(actual, opt)
-                for opt in expected.options  # type: ignore[attr-defined]
-            )
-
-        # Covariance rules
-        if exp_type is FloatType and act_type is IntType:
-            return True
-        if exp_type is SequenceType and act_type is ListType:
-            return self._types_compatible(actual.element, expected.element)  # type: ignore[attr-defined]
-        if exp_type is MappingType and act_type is DictType:
-            return (
-                self._types_compatible(actual.key, expected.key)  # type: ignore[attr-defined]
-                and self._types_compatible(actual.value, expected.value)  # type: ignore[attr-defined]
-            )
-
-        # Different types are incompatible
-        if act_type is not exp_type:
-            return False
-
-        # Same type - check structural compatibility via dispatch
-        compat_checker = _COMPAT_SAME_TYPE.get(exp_type)
-        if compat_checker:
-            return compat_checker(self, actual, expected)
-
-        return False
+        return TypeCheckResult(errors=tuple(errors))
 
 
 def typecheck(node: Node[Any]) -> TypeCheckResult:
