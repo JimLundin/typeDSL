@@ -112,10 +112,6 @@ def extract_type(py_type: Any) -> TypeDef:
             bound=extract_type(bound) if bound is not None else None,
         )
 
-    # Handle registered external types
-    if record := TypeCodecs.get_external_type(py_type):
-        return ExternalType(module=record.module, name=record.name)
-
     # Expand PEP 695 type aliases
     if isinstance(origin, TypeAliasType):
         type_params = origin.__type_params__
@@ -180,6 +176,11 @@ def extract_type(py_type: Any) -> TypeDef:
     # Union types
     if isinstance(py_type, types.UnionType) or origin is Union:
         return UnionType(tuple(extract_type(a) for a in args))
+
+    # External types: any class not handled above gets auto-registered
+    if isinstance(py_type, type):
+        record = TypeCodecs.get_external_type(py_type)
+        return ExternalType(module=record.module, name=record.name)
 
     msg = f"Cannot extract type from: {py_type}"
     raise ValueError(msg)
