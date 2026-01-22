@@ -42,9 +42,12 @@ _SCHEMA_BUILTINS: set[type] = {
 
 @dataclass(frozen=True)
 class ExternalTypeRecord:
-    """Record for external type registration (for schema extraction)."""
+    """Record for external type registration (for schema extraction).
 
-    python_type: type
+    Only stores module and name strings - no Python type reference.
+    This makes the record safe for export to non-Python systems.
+    """
+
     module: str
     name: str
 
@@ -55,19 +58,21 @@ class TypeCodecs:
     Handles both external types (DataFrame, ndarray) and format-varying
     builtins (bytes, datetime, set, etc.) with a single API.
 
-    For external types (not in Python's standard library), registration
-    also makes the type available for schema extraction via all_schemas().
+    Two registration modes:
+    - register(): For types that need serialization (encode/decode required)
+    - register_external(): For types only used internally between nodes
+      (schema-only, no serialization needed)
 
     Usage:
-        # Register external type - works for both serialization AND schema
+        # Register serializable external type
         TypeCodecs.register(
-            DataFrame, encode=lambda df: df.to_dicts(), decode=DataFrame
+            DataFrame,
+            encode=lambda df: df.to_dicts(),
+            decode=DataFrame.from_dicts,
         )
 
-        # In serialization
-        if codec := TypeCodecs.get(type(obj)):
-            encode, _ = codec
-            return encode(obj)
+        # Register internal-only external type (no serialization)
+        TypeCodecs.register_external(DatabaseConnection)
     """
 
     _registry: ClassVar[
@@ -76,42 +81,63 @@ class TypeCodecs:
     _external_types: ClassVar[dict[type, ExternalTypeRecord]] = {}
 
     @classmethod
-    def register(
+    def register[T](
         cls,
-        typ: type,
-        encode: Callable[[Any], Any],
-        decode: Callable[[Any], Any],
+        typ: type[T],
+        encode: Callable[[T], Any],
+        decode: Callable[[Any], T],
     ) -> None:
-        """Register encode/decode functions for a type.
-
-        For external types (not standard builtins), this also registers
-        the type for schema extraction via all_schemas().
+        """Register encode/decode functions for a serializable type.
 
         Args:
             typ: The type to register (e.g., datetime, DataFrame)
-            encode: Function to convert type → builtins (dict, list, str, etc.)
-            decode: Function to convert builtins → type
+            encode: Function to convert T → JSON-compatible builtins
+            decode: Function to convert JSON-compatible builtins → T
 
         Example:
             TypeCodecs.register(
                 datetime,
                 encode=lambda dt: dt.isoformat(),
-                decode=lambda s: datetime.fromisoformat(s),
+                decode=datetime.fromisoformat,
             )
 
         """
         cls._registry[typ] = (encode, decode)
 
-        # Track external types for schema extraction
-        if typ not in _SCHEMA_BUILTINS and typ not in cls._external_types:
+        # Also register for schema extraction if it's an external type
+        if typ not in _SCHEMA_BUILTINS:
+            cls._register_external_record(typ)
+
+    @classmethod
+    def register_external(cls, typ: type) -> None:
+        """Register an external type for schema extraction only.
+
+        Use this for types that are passed between nodes but never serialized.
+        These types appear in the schema but don't need encode/decode functions.
+
+        Args:
+            typ: The type to register (e.g., DatabaseConnection, Socket)
+
+        Example:
+            TypeCodecs.register_external(DatabaseConnection)
+
+        """
+        cls._register_external_record(typ)
+
+    @classmethod
+    def _register_external_record(cls, typ: type) -> None:
+        """Register type for schema extraction (internal)."""
+        if typ not in cls._external_types:
             cls._external_types[typ] = ExternalTypeRecord(
-                python_type=typ,
                 module=typ.__module__,
                 name=typ.__name__,
             )
 
     @classmethod
-    def get(cls, typ: type) -> tuple[Callable[[Any], Any], Callable[[Any], Any]] | None:
+    def get[T](
+        cls,
+        typ: type[T],
+    ) -> tuple[Callable[[T], Any], Callable[[Any], T]] | None:
         """Get codec for type, or None if not registered."""
         return cls._registry.get(typ)
 
@@ -132,25 +158,25 @@ def _register_builtins() -> None:
     TypeCodecs.register(
         bytes,
         encode=lambda b: base64.b64encode(b).decode("ascii"),
-        decode=lambda s: base64.b64decode(s),
+        decode=base64.b64decode,
     )
 
     TypeCodecs.register(
         datetime,
         encode=lambda dt: dt.isoformat(),
-        decode=lambda s: datetime.fromisoformat(s),
+        decode=datetime.fromisoformat,
     )
 
     TypeCodecs.register(
         date,
         encode=lambda d: d.isoformat(),
-        decode=lambda s: date.fromisoformat(s),
+        decode=date.fromisoformat,
     )
 
     TypeCodecs.register(
         time,
         encode=lambda t: t.isoformat(),
-        decode=lambda s: time.fromisoformat(s),
+        decode=time.fromisoformat,
     )
 
     TypeCodecs.register(
@@ -161,20 +187,20 @@ def _register_builtins() -> None:
 
     TypeCodecs.register(
         Decimal,
-        encode=lambda d: str(d),
-        decode=lambda s: Decimal(s),
+        encode=str,
+        decode=Decimal,
     )
 
     TypeCodecs.register(
         set,
-        encode=lambda s: list(s),
-        decode=lambda lst: set(lst),
+        encode=list,
+        decode=set,
     )
 
     TypeCodecs.register(
         frozenset,
-        encode=lambda s: list(s),
-        decode=lambda lst: frozenset(lst),
+        encode=list,
+        decode=frozenset,
     )
 
 
@@ -250,53 +276,8 @@ def to_builtins(obj: Any) -> Any:
     return obj
 
 
-def from_builtins(data: Any, type_hint: type | None = None) -> Any:
-    """Convert JSON-compatible builtins back to typed Python objects.
-
-    Uses type hints to properly reconstruct types like tuples, sets, and
-    registered codec types that don't have native JSON representation.
-
-    Args:
-        data: JSON-compatible Python value
-        type_hint: Optional type hint to guide reconstruction
-
-    Returns:
-        Reconstructed Python object
-
-    """
-    # Handle None
-    if data is None:
-        return None
-
-    # Tagged objects (nodes, refs) - type hint not needed
-    if isinstance(data, dict) and "tag" in data:
-        tag = data["tag"]
-        if tag == "ref":
-            return Ref(id=data["id"])
-        if tag in Node.registry:
-            return _deserialize_node(data)
-        msg = f"Unknown tag '{tag}' in data"
-        raise ValueError(msg)
-
-    # If we have a type hint, use it to guide deserialization
-    if type_hint is not None:
-        return _deserialize_value_with_type(data, type_hint)
-
-    # Without type hint, recurse into containers
-    if isinstance(data, dict):
-        return {k: from_builtins(v) for k, v in data.items()}
-    if isinstance(data, list):
-        return [from_builtins(item) for item in data]
-
-    # Primitives
-    return data
-
-
-def from_builtins_node(data: dict[str, Any]) -> Node[Any] | Ref[Any]:
+def from_builtins(data: dict[str, Any]) -> Node[Any] | Ref[Any]:
     """Deserialize a tagged dict to a Node or Ref.
-
-    This is a typed wrapper around from_builtins for when you know
-    the input is a tagged node/ref dict.
 
     Args:
         data: Dict with 'tag' field

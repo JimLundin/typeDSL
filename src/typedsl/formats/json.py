@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
-from typedsl.codecs import from_builtins_node, to_builtins
+from typedsl.codecs import from_builtins, to_builtins
 
 if TYPE_CHECKING:
     from typedsl.nodes import Node, Ref
@@ -45,4 +45,4 @@ def from_json(s: str) -> Node[Any] | Ref[Any]:
     if not isinstance(data, dict):
         msg = "Expected JSON object with 'tag' field"
         raise ValueError(msg)
-    return from_builtins_node(data)
+    return from_builtins(data)
