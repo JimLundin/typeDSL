@@ -26,6 +26,14 @@ from typedsl.schema import (
     extract_type,
     node_schema,
 )
+from typedsl.typecheck import (
+    TypeChecker,
+    TypeCheckError,
+    TypeCheckResult,
+    type_name,
+    typecheck,
+    typecheck_program,
+)
 
 __all__ = [
     # Core types
@@ -39,6 +47,10 @@ __all__ = [
     "NodeSchema",
     "Program",
     "Ref",
+    # Type checking
+    "TypeCheckError",
+    "TypeCheckResult",
+    "TypeChecker",
     # Serialization
     "TypeCodecs",
     "all_schemas",
@@ -48,4 +60,7 @@ __all__ = [
     "node_schema",
     "to_builtins",
     "to_json",
+    "type_name",
+    "typecheck",
+    "typecheck_program",
 ]
