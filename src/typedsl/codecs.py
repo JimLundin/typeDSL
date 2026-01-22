@@ -58,21 +58,20 @@ class TypeCodecs:
     Handles both external types (DataFrame, ndarray) and format-varying
     builtins (bytes, datetime, set, etc.) with a single API.
 
-    Two registration modes:
-    - register(): For types that need serialization (encode/decode required)
-    - register_external(): For types only used internally between nodes
-      (schema-only, no serialization needed)
+    External types are automatically registered for schema extraction when
+    encountered. Codec registration (encode/decode) is only needed for types
+    that will be serialized.
 
     Usage:
-        # Register serializable external type
+        # Register codec for serializable external type
         TypeCodecs.register(
             DataFrame,
             encode=lambda df: df.to_dicts(),
             decode=DataFrame.from_dicts,
         )
 
-        # Register internal-only external type (no serialization)
-        TypeCodecs.register_external(DatabaseConnection)
+        # Types used in Node fields are auto-registered for schema.
+        # No explicit registration needed unless serialization is required.
     """
 
     _registry: ClassVar[
@@ -106,32 +105,17 @@ class TypeCodecs:
 
         # Also register for schema extraction if it's an external type
         if typ not in _SCHEMA_BUILTINS:
-            cls._register_external_record(typ)
+            cls._ensure_external_registered(typ)
 
     @classmethod
-    def register_external(cls, typ: type) -> None:
-        """Register an external type for schema extraction only.
-
-        Use this for types that are passed between nodes but never serialized.
-        These types appear in the schema but don't need encode/decode functions.
-
-        Args:
-            typ: The type to register (e.g., DatabaseConnection, Socket)
-
-        Example:
-            TypeCodecs.register_external(DatabaseConnection)
-
-        """
-        cls._register_external_record(typ)
-
-    @classmethod
-    def _register_external_record(cls, typ: type) -> None:
-        """Register type for schema extraction (internal)."""
+    def _ensure_external_registered(cls, typ: type) -> ExternalTypeRecord:
+        """Ensure type is registered for schema, creating record if needed."""
         if typ not in cls._external_types:
             cls._external_types[typ] = ExternalTypeRecord(
                 module=typ.__module__,
                 name=typ.__name__,
             )
+        return cls._external_types[typ]
 
     @classmethod
     def get[T](
@@ -142,9 +126,13 @@ class TypeCodecs:
         return cls._registry.get(typ)
 
     @classmethod
-    def get_external_type(cls, typ: type) -> ExternalTypeRecord | None:
-        """Get external type record for schema extraction."""
-        return cls._external_types.get(typ)
+    def get_external_type(cls, typ: type) -> ExternalTypeRecord:
+        """Get external type record for schema extraction.
+
+        Auto-registers the type if not already registered. This allows
+        external types to be used in Node fields without explicit registration.
+        """
+        return cls._ensure_external_registered(typ)
 
     @classmethod
     def clear(cls) -> None:
