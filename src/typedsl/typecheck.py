@@ -414,7 +414,9 @@ def _check_return_type(
             ),
         ]
     schema = node_schema(type(v))
-    if not _types_compatible(ctx, schema.returns, e.returns):
+    # Unify to extract type parameter bindings
+    bindings: dict[str, TypeDef] = {}
+    if not _unify_types(schema.returns, e.returns, bindings):
         actual = type_name(schema.returns)
         expected = type_name(e.returns)
         return [
@@ -425,7 +427,12 @@ def _check_return_type(
                 f"Node returns {actual}, expected {expected}",
             ),
         ]
-    return _check_node_impl(ctx, v, p)
+    # Create new context with narrowed type bindings
+    narrowed_ctx = CheckContext(
+        program=ctx.program,
+        type_bindings={**ctx.type_bindings, **bindings},
+    )
+    return _check_node_impl(narrowed_ctx, v, p)
 
 
 def _check_ref_type(
@@ -520,24 +527,46 @@ _COMPAT_SAME_TYPE: dict[
 }
 
 
-def _types_compatible(ctx: CheckContext, actual: TypeDef, expected: TypeDef) -> bool:
-    """Check if actual type is compatible with expected type."""
-    if actual == expected:
-        return True
+def _unify_types(
+    actual: TypeDef,
+    expected: TypeDef,
+    bindings: dict[str, TypeDef],
+) -> bool:
+    """Unify actual type with expected type, extracting type parameter bindings.
 
-    exp_type = type(expected)
+    Returns True if types are compatible, False otherwise.
+    Updates bindings dict with any type parameter -> concrete type mappings.
+    """
     act_type = type(actual)
+    exp_type = type(expected)
 
-    # Type parameters are compatible with anything
+    # Type parameters in expected match anything (no binding needed)
     if exp_type in (TypeParameter, TypeParameterRef):
         return True
-    if act_type in (TypeParameter, TypeParameterRef):
+
+    # Type parameters in actual should bind to expected (only if expected is concrete)
+    if act_type is TypeParameter:
+        name = actual.name  # type: ignore[attr-defined]
+        if name in bindings:
+            # Already bound - check consistency
+            return _unify_types(bindings[name], expected, bindings)
+        bindings[name] = expected
+        return True
+    if act_type is TypeParameterRef:
+        name = actual.name  # type: ignore[attr-defined]
+        if name in bindings:
+            return _unify_types(bindings[name], expected, bindings)
+        bindings[name] = expected
+        return True
+
+    # Same types - recurse into structure
+    if actual == expected:
         return True
 
     # Union: actual must match at least one option
     if exp_type is UnionType:
         return any(
-            _types_compatible(ctx, actual, opt)
+            _unify_types(actual, opt, bindings)
             for opt in expected.options  # type: ignore[attr-defined]
         )
 
@@ -545,31 +574,43 @@ def _types_compatible(ctx: CheckContext, actual: TypeDef, expected: TypeDef) -> 
     if exp_type is FloatType and act_type is IntType:
         return True
     if exp_type is SequenceType and act_type is ListType:
-        return _types_compatible(
-            ctx,
+        return _unify_types(
             actual.element,  # type: ignore[attr-defined]
             expected.element,  # type: ignore[attr-defined]
+            bindings,
         )
     if exp_type is MappingType and act_type is DictType:
-        return _types_compatible(
-            ctx,
+        return _unify_types(
             actual.key,  # type: ignore[attr-defined]
             expected.key,  # type: ignore[attr-defined]
-        ) and _types_compatible(
-            ctx,
+            bindings,
+        ) and _unify_types(
             actual.value,  # type: ignore[attr-defined]
             expected.value,  # type: ignore[attr-defined]
+            bindings,
+        )
+
+    # ListType element unification
+    if exp_type is ListType and act_type is ListType:
+        return _unify_types(
+            actual.element,  # type: ignore[attr-defined]
+            expected.element,  # type: ignore[attr-defined]
+            bindings,
         )
 
     # Different types are incompatible
-    if act_type is not exp_type:
-        return False
+    return act_type is exp_type
 
-    # Same type - check structural compatibility via dispatch
-    if compat_checker := _COMPAT_SAME_TYPE.get(exp_type):
-        return compat_checker(ctx, actual, expected)
 
-    return False
+def _types_compatible(
+    _ctx: CheckContext,
+    actual: TypeDef,
+    expected: TypeDef,
+) -> bool:
+    """Check if actual type is compatible with expected type."""
+    del _ctx  # unused - kept for API compatibility
+    # Use unification but discard bindings for simple compatibility check
+    return _unify_types(actual, expected, {})
 
 
 # =============================================================================
@@ -653,6 +694,11 @@ def _check_value(
             return _check_value(ctx, value, ctx.type_bindings[expected.name], path)  # type: ignore[attr-defined]
         return []
     if exp_type is TypeParameter:
+        param_name = expected.name  # type: ignore[attr-defined]
+        # Check type bindings first (from narrowing)
+        if param_name in ctx.type_bindings:
+            return _check_value(ctx, value, ctx.type_bindings[param_name], path)
+        # Fall back to bound if present
         if expected.bound is not None:  # type: ignore[attr-defined]
             return _check_value(ctx, value, expected.bound, path)  # type: ignore[attr-defined]
         return []

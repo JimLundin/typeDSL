@@ -772,6 +772,120 @@ class TestTypeParameterBounds:
         assert result.is_valid
 
 
+class TestTypeParameterNarrowing:
+    """Test type narrowing when generic nodes are used in typed contexts."""
+
+    def test_generic_literal_in_float_context(self) -> None:
+        """Test that Literal[T] narrows T to float when used as Node[float] child."""
+
+        class Literal[T](Node[T], tag="literal_narrow_tc"):
+            value: T
+
+        class Add(Node[float], tag="add_narrow_tc"):
+            left: Node[float]
+            right: Node[float]
+
+        # Valid: float literal in Add context
+        node = Add(
+            left=Literal(value=1.0),
+            right=Literal(value=2.0),
+        )
+        result = typecheck(node)
+        assert result.is_valid
+
+    def test_generic_literal_narrows_rejects_wrong_type(self) -> None:
+        """Test that narrowed type parameter rejects incompatible values."""
+
+        class Literal[T](Node[T], tag="literal_narrow_tc2"):
+            value: T
+
+        class Add(Node[float], tag="add_narrow_tc2"):
+            left: Node[float]
+            right: Node[float]
+
+        # Invalid: string value when T should be narrowed to float
+        lit = Literal.__new__(Literal)
+        object.__setattr__(lit, "value", "not a float")
+
+        node = Add.__new__(Add)
+        object.__setattr__(node, "left", lit)
+        object.__setattr__(node, "right", Literal(value=2.0))
+
+        result = typecheck(node)
+        assert not result.is_valid
+        assert "float" in str(result)
+
+    def test_generic_literal_int_satisfies_float_context(self) -> None:
+        """Test that int value satisfies narrowed float type (covariance)."""
+
+        class Literal[T](Node[T], tag="literal_narrow_tc3"):
+            value: T
+
+        class Add(Node[float], tag="add_narrow_tc3"):
+            left: Node[float]
+            right: Node[float]
+
+        # Valid: int literals satisfy float context
+        node = Add(
+            left=Literal(value=1),
+            right=Literal(value=2),
+        )
+        result = typecheck(node)
+        assert result.is_valid
+
+    def test_nested_generic_narrowing(self) -> None:
+        """Test narrowing works through nested generic nodes."""
+
+        class Literal[T](Node[T], tag="literal_nested_narrow"):
+            value: T
+
+        class Negate[T](Node[T], tag="negate_narrow"):
+            child: Node[T]
+
+        class Add(Node[float], tag="add_nested_narrow"):
+            left: Node[float]
+            right: Node[float]
+
+        # Valid: Negate[float] containing Literal[float]
+        node = Add(
+            left=Negate(child=Literal(value=1.0)),
+            right=Literal(value=2.0),
+        )
+        result = typecheck(node)
+        assert result.is_valid
+
+    def test_generic_list_element_narrowing(self) -> None:
+        """Test that generic node with list field narrows element type."""
+
+        class Values[T](Node[list[T]], tag="values_narrow_tc"):
+            items: list[T]
+
+        class SumNode(Node[float], tag="sum_narrow_tc"):
+            source: Node[list[float]]
+
+        # Valid: list of floats
+        node = SumNode(source=Values(items=[1.0, 2.0, 3.0]))
+        result = typecheck(node)
+        assert result.is_valid
+
+    def test_generic_list_element_narrowing_rejects_wrong_type(self) -> None:
+        """Test that narrowed list element type rejects wrong values."""
+
+        class Values[T](Node[list[T]], tag="values_narrow_tc2"):
+            items: list[T]
+
+        class SumNode(Node[float], tag="sum_narrow_tc2"):
+            source: Node[list[float]]
+
+        # Invalid: list contains string when T should be float
+        values = Values.__new__(Values)
+        object.__setattr__(values, "items", [1.0, "wrong", 3.0])
+
+        node = SumNode(source=values)
+        result = typecheck(node)
+        assert not result.is_valid
+
+
 class TestRefTypeExpectedReturnType:
     """Test that RefType correctly validates expected return types."""
 
