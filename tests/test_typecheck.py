@@ -875,6 +875,123 @@ class TestTypeParameterNarrowing:
         result = typecheck(node)
         assert not result.is_valid
 
+    def test_bounded_generic_narrowed_to_compatible_type(self) -> None:
+        """Test bounded generic narrowed to type within bounds."""
+
+        class NumericLiteral[T: int | float](Node[T], tag="numeric_lit_narrow"):
+            value: T
+
+        class FloatExpr(Node[float], tag="float_expr_narrow"):
+            child: Node[float]
+
+        # Valid: T bounded to int|float, narrowed to float, value is float
+        node = FloatExpr(child=NumericLiteral(value=3.14))
+        result = typecheck(node)
+        assert result.is_valid
+
+    def test_bounded_generic_narrowed_rejects_wrong_value(self) -> None:
+        """Test bounded generic narrowed rejects value not matching narrowed type."""
+
+        class NumericLiteral[T: int | float](Node[T], tag="numeric_lit_narrow2"):
+            value: T
+
+        class FloatExpr(Node[float], tag="float_expr_narrow2"):
+            child: Node[float]
+
+        # Invalid: T narrowed to float, but value is string
+        lit = NumericLiteral.__new__(NumericLiteral)
+        object.__setattr__(lit, "value", "not a number")
+
+        node = FloatExpr(child=lit)
+        result = typecheck(node)
+        assert not result.is_valid
+        assert "float" in str(result)
+
+    def test_bounded_generic_int_satisfies_float_narrowing(self) -> None:
+        """Test int value satisfies when T: int|float is narrowed to float."""
+
+        class NumericLiteral[T: int | float](Node[T], tag="numeric_lit_narrow3"):
+            value: T
+
+        class FloatExpr(Node[float], tag="float_expr_narrow3"):
+            child: Node[float]
+
+        # Valid: T narrowed to float, int value satisfies float (covariance)
+        node = FloatExpr(child=NumericLiteral(value=42))
+        result = typecheck(node)
+        assert result.is_valid
+
+    def test_nested_bounded_generics_with_narrowing(self) -> None:
+        """Test nested bounded generics both get narrowed correctly."""
+
+        class Value[T: int | float](Node[T], tag="value_nested_bound"):
+            data: T
+
+        class Wrapper[T: int | float](Node[T], tag="wrapper_nested_bound"):
+            inner: Node[T]
+
+        class FloatRoot(Node[float], tag="float_root_bound"):
+            child: Node[float]
+
+        # Valid: Both Wrapper and Value narrow T to float
+        node = FloatRoot(child=Wrapper(inner=Value(data=1.5)))
+        result = typecheck(node)
+        assert result.is_valid
+
+    def test_nested_bounded_generics_rejects_wrong_inner_value(self) -> None:
+        """Test nested bounded generics reject wrong value after narrowing."""
+
+        class Value[T: int | float](Node[T], tag="value_nested_bound2"):
+            data: T
+
+        class Wrapper[T: int | float](Node[T], tag="wrapper_nested_bound2"):
+            inner: Node[T]
+
+        class FloatRoot(Node[float], tag="float_root_bound2"):
+            child: Node[float]
+
+        # Invalid: inner value is string, not float
+        inner = Value.__new__(Value)
+        object.__setattr__(inner, "data", "wrong")
+
+        node = FloatRoot(child=Wrapper(inner=inner))
+        result = typecheck(node)
+        assert not result.is_valid
+
+    def test_multiple_bounded_type_params_narrowed_independently(self) -> None:
+        """Test multiple type parameters narrow independently."""
+
+        class Pair[K: str | int, V: int | float](Node[tuple[K, V]], tag="pair_multi"):
+            key: K
+            value: V
+
+        class StringFloatContainer(Node[tuple[str, float]], tag="str_float_cont"):
+            pair: Node[tuple[str, float]]
+
+        # Valid: K narrowed to str, V narrowed to float
+        node = StringFloatContainer(pair=Pair(key="x", value=3.14))
+        result = typecheck(node)
+        assert result.is_valid
+
+    def test_multiple_bounded_type_params_rejects_wrong_key(self) -> None:
+        """Test multiple type parameters reject wrong key after narrowing."""
+
+        class Pair[K: str | int, V: int | float](Node[tuple[K, V]], tag="pair_multi2"):
+            key: K
+            value: V
+
+        class StringFloatContainer(Node[tuple[str, float]], tag="str_float_cont2"):
+            pair: Node[tuple[str, float]]
+
+        # Invalid: K narrowed to str, but key is float (not in bounds either)
+        pair = Pair.__new__(Pair)
+        object.__setattr__(pair, "key", 3.14)  # float, not str
+        object.__setattr__(pair, "value", 1.0)
+
+        node = StringFloatContainer(pair=pair)
+        result = typecheck(node)
+        assert not result.is_valid
+
 
 class TestRefTypeExpectedReturnType:
     """Test that RefType correctly validates expected return types."""
