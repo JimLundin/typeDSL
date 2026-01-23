@@ -2,7 +2,7 @@
 
 import datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Literal, TypeVar
 
 from typedsl import (
     Child,
@@ -682,6 +682,248 @@ class TestGenericNodes:
 
         node = ListContainer(items=[1, 2, 3])
         result = typecheck(node)
+        assert result.is_valid
+
+
+class TestTypeParameterBounds:
+    """Test type checking of type parameters with bounds."""
+
+    def test_bounded_type_parameter_valid(self) -> None:
+        """Test that bounded type parameter accepts values matching the bound."""
+        T = TypeVar("T", bound=int)
+
+        class BoundedContainer(Node[int], tag="bounded_container_tc"):
+            __type_params__ = (T,)
+            value: T  # type: ignore[valid-type]
+
+        node = BoundedContainer(value=42)
+        result = typecheck(node)
+        assert result.is_valid
+
+    def test_bounded_type_parameter_invalid(self) -> None:
+        """Test that bounded type parameter rejects values not matching bound."""
+        T = TypeVar("T", bound=int)
+
+        class BoundedContainer2(Node[int], tag="bounded_container_tc2"):
+            __type_params__ = (T,)
+            value: T  # type: ignore[valid-type]
+
+        node = BoundedContainer2.__new__(BoundedContainer2)
+        object.__setattr__(node, "value", "not an int")
+
+        result = typecheck(node)
+        assert not result.is_valid
+        assert "int" in result.errors[0].expected
+
+    def test_bounded_type_parameter_with_node_bound(self) -> None:
+        """Test bounded type parameter where bound is Node[int]."""
+
+        class IntLeaf(Node[int], tag="int_leaf_bound_tc"):
+            value: int
+
+        T = TypeVar("T", bound=Node[int])
+
+        class NodeContainer(Node[int], tag="node_container_bound_tc"):
+            __type_params__ = (T,)
+            child: T  # type: ignore[valid-type]
+
+        node = NodeContainer(child=IntLeaf(value=42))
+        result = typecheck(node)
+        assert result.is_valid
+
+    def test_bounded_type_parameter_rejects_wrong_node(self) -> None:
+        """Test bounded type parameter rejects node with wrong return type."""
+
+        class StrLeaf(Node[str], tag="str_leaf_bound_tc"):
+            text: str
+
+        T = TypeVar("T", bound=Node[int])
+
+        class NodeContainer2(Node[int], tag="node_container_bound_tc2"):
+            __type_params__ = (T,)
+            child: T  # type: ignore[valid-type]
+
+        node = NodeContainer2.__new__(NodeContainer2)
+        object.__setattr__(node, "child", StrLeaf(text="hello"))
+
+        result = typecheck(node)
+        assert not result.is_valid
+
+    def test_unbounded_type_parameter_accepts_any(self) -> None:
+        """Test that unbounded type parameter accepts any value."""
+
+        class AnyContainer[T](Node[T], tag="any_container_tc"):
+            value: T
+
+        # int
+        result = typecheck(AnyContainer(value=42))
+        assert result.is_valid
+
+        # str
+        result = typecheck(AnyContainer(value="hello"))
+        assert result.is_valid
+
+        # list
+        result = typecheck(AnyContainer(value=[1, 2, 3]))
+        assert result.is_valid
+
+        # None
+        result = typecheck(AnyContainer(value=None))
+        assert result.is_valid
+
+
+class TestRefTypeExpectedReturnType:
+    """Test that RefType correctly validates expected return types."""
+
+    def test_ref_with_return_type_valid(self) -> None:
+        """Test Ref[Node[int]] accepts ref to Node[int]."""
+
+        class IntNode(Node[int], tag="int_node_ref_ret"):
+            value: int
+
+        class Wrapper(Node[int], tag="wrapper_ref_ret"):
+            child: Ref[Node[int]]
+
+        prog = Program(
+            root=Ref(id="wrapper"),
+            nodes={
+                "int_val": IntNode(value=42),
+                "wrapper": Wrapper(child=Ref(id="int_val")),
+            },
+        )
+
+        result = typecheck_program(prog)
+        assert result.is_valid
+
+    def test_ref_with_return_type_invalid(self) -> None:
+        """Test Ref[Node[int]] rejects ref to Node[str]."""
+
+        class IntNode(Node[int], tag="int_node_ref_ret2"):
+            value: int
+
+        class StrNode(Node[str], tag="str_node_ref_ret"):
+            text: str
+
+        class Wrapper(Node[int], tag="wrapper_ref_ret2"):
+            child: Ref[Node[int]]
+
+        prog = Program(
+            root=Ref(id="wrapper"),
+            nodes={
+                "str_val": StrNode(text="hello"),
+                "wrapper": Wrapper(child=Ref(id="str_val")),
+            },
+        )
+
+        result = typecheck_program(prog)
+        assert not result.is_valid
+        # Should mention str and int return types
+        error_str = str(result)
+        assert "str" in error_str
+        assert "int" in error_str
+
+    def test_ref_with_covariant_return_type(self) -> None:
+        """Test Ref[Node[float]] accepts ref to Node[int] (covariance)."""
+
+        class IntNode(Node[int], tag="int_node_ref_covar"):
+            value: int
+
+        class Wrapper(Node[float], tag="wrapper_ref_covar"):
+            child: Ref[Node[float]]
+
+        prog = Program(
+            root=Ref(id="wrapper"),
+            nodes={
+                "int_val": IntNode(value=42),
+                "wrapper": Wrapper(child=Ref(id="int_val")),
+            },
+        )
+
+        result = typecheck_program(prog)
+        assert result.is_valid
+
+    def test_ref_with_specific_node_type(self) -> None:
+        """Test Ref[SpecificNode] checks node tag, not just return type."""
+
+        class LeafA(Node[int], tag="leaf_a_ref_tc"):
+            value: int
+
+        class LeafB(Node[int], tag="leaf_b_ref_tc"):
+            value: int
+
+        class Wrapper(Node[int], tag="wrapper_specific_ref"):
+            child: Ref[LeafA]
+
+        # Valid: ref to LeafA
+        prog_valid = Program(
+            root=Ref(id="wrapper"),
+            nodes={
+                "leaf": LeafA(value=42),
+                "wrapper": Wrapper(child=Ref(id="leaf")),
+            },
+        )
+        result = typecheck_program(prog_valid)
+        assert result.is_valid
+
+        # Invalid: ref to LeafB (same return type, but wrong node type)
+        prog_invalid = Program(
+            root=Ref(id="wrapper"),
+            nodes={
+                "leaf": LeafB(value=42),
+                "wrapper": Wrapper(child=Ref(id="leaf")),
+            },
+        )
+        result = typecheck_program(prog_invalid)
+        assert not result.is_valid
+        assert "leaf_a_ref_tc" in str(result) or "leaf_b_ref_tc" in str(result)
+
+    def test_ref_without_program_context_skips_validation(self) -> None:
+        """Test that refs without program context don't error."""
+
+        class IntNode(Node[int], tag="int_node_no_ctx"):
+            value: int
+
+        class Wrapper(Node[int], tag="wrapper_no_ctx"):
+            child: Ref[Node[int]]
+
+        # Check node without program - ref target cannot be validated
+        wrapper = Wrapper(child=Ref(id="nonexistent"))
+        result = typecheck(wrapper)
+        # Should be valid because we can't check refs without program
+        assert result.is_valid
+
+    def test_ref_to_node_with_union_return_type(self) -> None:
+        """Test Ref[Node[int | str]] accepts refs to Node[int] or Node[str]."""
+
+        class IntNode(Node[int], tag="int_node_union_ref"):
+            value: int
+
+        class StrNode(Node[str], tag="str_node_union_ref"):
+            text: str
+
+        class Wrapper(Node[int | str], tag="wrapper_union_ref"):
+            child: Ref[Node[int | str]]
+
+        # Int node is valid
+        prog_int = Program(
+            root=Ref(id="wrapper"),
+            nodes={
+                "val": IntNode(value=42),
+                "wrapper": Wrapper(child=Ref(id="val")),
+            },
+        )
+        result = typecheck_program(prog_int)
+        assert result.is_valid
+
+        # Str node is valid
+        prog_str = Program(
+            root=Ref(id="wrapper"),
+            nodes={
+                "val": StrNode(text="hello"),
+                "wrapper": Wrapper(child=Ref(id="val")),
+            },
+        )
+        result = typecheck_program(prog_str)
         assert result.is_valid
 
 
