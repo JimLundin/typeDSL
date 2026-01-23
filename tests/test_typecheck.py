@@ -2,7 +2,7 @@
 
 import datetime
 from decimal import Decimal
-from typing import Literal, TypeVar
+from typing import Literal
 
 from typedsl import (
     Child,
@@ -690,11 +690,9 @@ class TestTypeParameterBounds:
 
     def test_bounded_type_parameter_valid(self) -> None:
         """Test that bounded type parameter accepts values matching the bound."""
-        T = TypeVar("T", bound=int)
 
-        class BoundedContainer(Node[int], tag="bounded_container_tc"):
-            __type_params__ = (T,)
-            value: T  # type: ignore[valid-type]
+        class BoundedContainer[T: int](Node[T], tag="bounded_container_tc"):
+            value: T
 
         node = BoundedContainer(value=42)
         result = typecheck(node)
@@ -702,13 +700,11 @@ class TestTypeParameterBounds:
 
     def test_bounded_type_parameter_invalid(self) -> None:
         """Test that bounded type parameter rejects values not matching bound."""
-        T = TypeVar("T", bound=int)
 
-        class BoundedContainer2(Node[int], tag="bounded_container_tc2"):
-            __type_params__ = (T,)
-            value: T  # type: ignore[valid-type]
+        class BoundedContainer[T: int](Node[T], tag="bounded_container_tc2"):
+            value: T
 
-        node = BoundedContainer2.__new__(BoundedContainer2)
+        node = BoundedContainer.__new__(BoundedContainer)
         object.__setattr__(node, "value", "not an int")
 
         result = typecheck(node)
@@ -721,11 +717,8 @@ class TestTypeParameterBounds:
         class IntLeaf(Node[int], tag="int_leaf_bound_tc"):
             value: int
 
-        T = TypeVar("T", bound=Node[int])
-
-        class NodeContainer(Node[int], tag="node_container_bound_tc"):
-            __type_params__ = (T,)
-            child: T  # type: ignore[valid-type]
+        class NodeContainer[T: Node[int]](Node[int], tag="node_container_bound_tc"):
+            child: T
 
         node = NodeContainer(child=IntLeaf(value=42))
         result = typecheck(node)
@@ -737,13 +730,10 @@ class TestTypeParameterBounds:
         class StrLeaf(Node[str], tag="str_leaf_bound_tc"):
             text: str
 
-        T = TypeVar("T", bound=Node[int])
+        class NodeContainer[T: Node[int]](Node[int], tag="node_container_bound_tc2"):
+            child: T
 
-        class NodeContainer2(Node[int], tag="node_container_bound_tc2"):
-            __type_params__ = (T,)
-            child: T  # type: ignore[valid-type]
-
-        node = NodeContainer2.__new__(NodeContainer2)
+        node = NodeContainer.__new__(NodeContainer)
         object.__setattr__(node, "child", StrLeaf(text="hello"))
 
         result = typecheck(node)
