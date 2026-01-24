@@ -299,9 +299,13 @@ class TestExternalTypeInNodes:
 
         result = to_builtins(node)
 
+        # External types are tagged for unambiguous decoding
         assert result == {
             "tag": "data_node_ext",
-            "data": [{"x": 1, "y": 2}, {"x": 3, "y": 4}],
+            "data": {
+                "tag": "MockDataFrame",
+                "val": [{"x": 1, "y": 2}, {"x": 3, "y": 4}],
+            },
         }
 
     def test_deserialize_node_with_external_type(self) -> None:
@@ -316,9 +320,10 @@ class TestExternalTypeInNodes:
         class DataNodeDeser(Node[None], tag="data_node_deser"):
             data: MockDataFrame
 
+        # Data must be tagged for deserialization
         data = {
             "tag": "data_node_deser",
-            "data": [{"a": 10, "b": 20}],
+            "data": {"tag": "MockDataFrame", "val": [{"a": 10, "b": 20}]},
         }
 
         result = from_builtins(data)
@@ -388,9 +393,10 @@ class TestBuiltinTypeInNodes:
         node = TimestampNode(created_at=datetime(2024, 1, 15, 10, 30, 0))
         result = to_builtins(node)
 
+        # Non-native types are tagged for unambiguous decoding
         assert result == {
             "tag": "timestamp_node",
-            "created_at": "2024-01-15T10:30:00",
+            "created_at": {"tag": "datetime", "val": "2024-01-15T10:30:00"},
         }
 
     def test_deserialize_node_with_datetime(self) -> None:
@@ -399,9 +405,10 @@ class TestBuiltinTypeInNodes:
         class TimestampNodeDeser(Node[None], tag="timestamp_node_deser"):
             created_at: datetime
 
+        # Data must be tagged for deserialization
         data = {
             "tag": "timestamp_node_deser",
-            "created_at": "2024-06-20T14:45:30",
+            "created_at": {"tag": "datetime", "val": "2024-06-20T14:45:30"},
         }
         result = from_builtins(data)
 
@@ -429,7 +436,10 @@ class TestBuiltinTypeInNodes:
         node = DateNode(birthday=date(1990, 5, 15))
         result = to_builtins(node)
 
-        assert result == {"tag": "date_node", "birthday": "1990-05-15"}
+        assert result == {
+            "tag": "date_node",
+            "birthday": {"tag": "date", "val": "1990-05-15"},
+        }
 
     def test_round_trip_node_with_date(self) -> None:
         """Test round-trip for node with date field."""
@@ -451,7 +461,10 @@ class TestBuiltinTypeInNodes:
         node = TimeNode(start_time=time(9, 30, 0))
         result = to_builtins(node)
 
-        assert result == {"tag": "time_node", "start_time": "09:30:00"}
+        assert result == {
+            "tag": "time_node",
+            "start_time": {"tag": "time", "val": "09:30:00"},
+        }
 
     def test_round_trip_node_with_time(self) -> None:
         """Test round-trip for node with time field."""
@@ -473,7 +486,10 @@ class TestBuiltinTypeInNodes:
         node = DurationNode(duration=timedelta(hours=1, minutes=30))
         result = to_builtins(node)
 
-        assert result == {"tag": "duration_node", "duration": 5400.0}
+        assert result == {
+            "tag": "duration_node",
+            "duration": {"tag": "timedelta", "val": 5400.0},
+        }
 
     def test_round_trip_node_with_timedelta(self) -> None:
         """Test round-trip for node with timedelta field."""
@@ -496,8 +512,11 @@ class TestBuiltinTypeInNodes:
         result = to_builtins(node)
 
         assert result["tag"] == "binary_node"
-        # Should be base64 encoded
-        assert result["data"] == base64.b64encode(b"hello").decode("ascii")
+        # Should be tagged with base64-encoded value
+        assert result["data"] == {
+            "tag": "bytes",
+            "val": base64.b64encode(b"hello").decode("ascii"),
+        }
 
     def test_round_trip_node_with_bytes(self) -> None:
         """Test round-trip for node with bytes field."""
@@ -519,7 +538,10 @@ class TestBuiltinTypeInNodes:
         node = MoneyNode(amount=Decimal("99.99"))
         result = to_builtins(node)
 
-        assert result == {"tag": "money_node", "amount": "99.99"}
+        assert result == {
+            "tag": "money_node",
+            "amount": {"tag": "Decimal", "val": "99.99"},
+        }
 
     def test_round_trip_node_with_decimal(self) -> None:
         """Test round-trip for node with Decimal field."""
@@ -559,9 +581,15 @@ class TestNestedExternalTypes:
         )
 
         serialized = to_builtins(polygon)
+        # External types are tagged for unambiguous decoding
         assert serialized == {
             "tag": "polygon_node",
-            "vertices": [[0, 0], [1, 0], [1, 1], [0, 1]],
+            "vertices": [
+                {"tag": "Point", "val": [0, 0]},
+                {"tag": "Point", "val": [1, 0]},
+                {"tag": "Point", "val": [1, 1]},
+                {"tag": "Point", "val": [0, 1]},
+            ],
         }
 
         deserialized = from_builtins(serialized)
@@ -585,9 +613,13 @@ class TestNestedExternalTypes:
         node = NamedPointsNode(points={"origin": Point(0, 0), "target": Point(10, 20)})
 
         serialized = to_builtins(node)
+        # External types are tagged for unambiguous decoding
         assert serialized == {
             "tag": "named_points_node",
-            "points": {"origin": [0, 0], "target": [10, 20]},
+            "points": {
+                "origin": {"tag": "Point", "val": [0, 0]},
+                "target": {"tag": "Point", "val": [10, 20]},
+            },
         }
 
         deserialized = from_builtins(serialized)
@@ -610,7 +642,11 @@ class TestNestedExternalTypes:
         # With value
         node_with = OptionalPointNode(location=Point(5, 5))
         serialized_with = to_builtins(node_with)
-        assert serialized_with == {"tag": "optional_point_node", "location": [5, 5]}
+        # External types are tagged for unambiguous decoding
+        assert serialized_with == {
+            "tag": "optional_point_node",
+            "location": {"tag": "Point", "val": [5, 5]},
+        }
 
         deserialized_with = from_builtins(serialized_with)
         assert deserialized_with.location == Point(5, 5)
@@ -646,9 +682,13 @@ class TestNestedBuiltinTypes:
         )
 
         serialized = to_builtins(node)
+        # Non-native types are tagged for unambiguous decoding
         assert serialized == {
             "tag": "events_node",
-            "timestamps": ["2024-01-01T00:00:00", "2024-06-15T12:30:00"],
+            "timestamps": [
+                {"tag": "datetime", "val": "2024-01-01T00:00:00"},
+                {"tag": "datetime", "val": "2024-06-15T12:30:00"},
+            ],
         }
 
         deserialized = from_builtins(serialized)
@@ -665,9 +705,13 @@ class TestNestedBuiltinTypes:
         node = PricesNode(prices={"apple": Decimal("1.99"), "banana": Decimal("0.50")})
 
         serialized = to_builtins(node)
+        # Non-native types are tagged for unambiguous decoding
         assert serialized == {
             "tag": "prices_node",
-            "prices": {"apple": "1.99", "banana": "0.50"},
+            "prices": {
+                "apple": {"tag": "Decimal", "val": "1.99"},
+                "banana": {"tag": "Decimal", "val": "0.50"},
+            },
         }
 
         deserialized = from_builtins(serialized)
@@ -696,8 +740,11 @@ class TestCollectionCoverage:
 
         serialized = to_builtins(original)
         assert serialized["tag"] == "date_set_node"
-        # Set becomes list, datetimes become ISO strings
-        assert set(serialized["dates"]) == {
+        # Set is tagged, datetimes are also tagged
+        assert serialized["dates"]["tag"] == "set"
+        # Each datetime in the set is tagged
+        datetime_vals = {item["val"] for item in serialized["dates"]["val"]}
+        assert datetime_vals == {
             "2024-01-01T00:00:00",
             "2024-06-15T00:00:00",
             "2024-12-31T00:00:00",
@@ -720,7 +767,10 @@ class TestCollectionCoverage:
         )
 
         serialized = to_builtins(original)
-        assert set(serialized["dates"]) == {"2024-01-01", "2024-12-31"}
+        # Frozenset is tagged, dates are also tagged
+        assert serialized["dates"]["tag"] == "frozenset"
+        date_vals = {item["val"] for item in serialized["dates"]["val"]}
+        assert date_vals == {"2024-01-01", "2024-12-31"}
 
         deserialized = from_builtins(serialized)
         assert isinstance(deserialized.dates, frozenset)
@@ -738,9 +788,17 @@ class TestCollectionCoverage:
         )
 
         serialized = to_builtins(original)
+        # Tuple is tagged, and each element type is also tagged
         assert serialized == {
             "tag": "mixed_tuple_node",
-            "record": ["2024-01-15T00:00:00", "99.99", "ZGF0YQ=="],
+            "record": {
+                "tag": "tuple",
+                "val": [
+                    {"tag": "datetime", "val": "2024-01-15T00:00:00"},
+                    {"tag": "Decimal", "val": "99.99"},
+                    {"tag": "bytes", "val": "ZGF0YQ=="},
+                ],
+            },
         }
 
         deserialized = from_builtins(serialized)
@@ -759,11 +817,12 @@ class TestCollectionCoverage:
 
         serialized = to_builtins(original)
         assert serialized["tag"] == "list_of_sets_node"
-        # Each set becomes a list
+        # Each set is tagged
         assert len(serialized["groups"]) == 3
-        assert set(serialized["groups"][0]) == {1, 2}
-        assert set(serialized["groups"][1]) == {3, 4, 5}
-        assert set(serialized["groups"][2]) == {6}
+        assert serialized["groups"][0]["tag"] == "set"
+        assert set(serialized["groups"][0]["val"]) == {1, 2}
+        assert set(serialized["groups"][1]["val"]) == {3, 4, 5}
+        assert set(serialized["groups"][2]["val"]) == {6}
 
         deserialized = from_builtins(serialized)
         assert isinstance(deserialized.groups, list)
@@ -779,8 +838,9 @@ class TestCollectionCoverage:
         original = SetOfTuplesNode(coordinates={(0, 0), (1, 2), (3, 4)})
 
         serialized = to_builtins(original)
-        # Set becomes list, tuples become lists
-        coords_as_lists = [list(c) for c in serialized["coordinates"]]
+        # Set is tagged, tuples inside are also tagged
+        assert serialized["coordinates"]["tag"] == "set"
+        coords_as_lists = [c["val"] for c in serialized["coordinates"]["val"]]
         assert [0, 0] in coords_as_lists
         assert [1, 2] in coords_as_lists
         assert [3, 4] in coords_as_lists
@@ -804,11 +864,15 @@ class TestCollectionCoverage:
         )
 
         serialized = to_builtins(original)
+        # Datetimes are tagged
         assert serialized == {
             "tag": "schedule_node",
             "events": {
-                "monday": ["2024-01-01T09:00:00", "2024-01-01T14:00:00"],
-                "tuesday": ["2024-01-02T10:00:00"],
+                "monday": [
+                    {"tag": "datetime", "val": "2024-01-01T09:00:00"},
+                    {"tag": "datetime", "val": "2024-01-01T14:00:00"},
+                ],
+                "tuesday": [{"tag": "datetime", "val": "2024-01-02T10:00:00"}],
             },
         }
 
@@ -836,9 +900,19 @@ class TestCollectionCoverage:
         )
 
         serialized = to_builtins(original)
+        # Decimals are tagged
         assert serialized == {
             "tag": "matrix_node",
-            "matrix": [["1.1", "1.2"], ["2.1", "2.2"]],
+            "matrix": [
+                [
+                    {"tag": "Decimal", "val": "1.1"},
+                    {"tag": "Decimal", "val": "1.2"},
+                ],
+                [
+                    {"tag": "Decimal", "val": "2.1"},
+                    {"tag": "Decimal", "val": "2.2"},
+                ],
+            ],
         }
 
         deserialized = from_builtins(serialized)
@@ -856,10 +930,12 @@ class TestCollectionCoverage:
         original = DeepNestNode(data=([{1, 2}, {3}], [{4, 5, 6}]))
 
         serialized = to_builtins(original)
-        # tuple -> list, inner sets -> lists
-        assert len(serialized["data"]) == 2
-        assert len(serialized["data"][0]) == 2
-        assert set(serialized["data"][0][0]) == {1, 2}
+        # tuple is tagged, inner sets are tagged
+        assert serialized["data"]["tag"] == "tuple"
+        assert len(serialized["data"]["val"]) == 2
+        assert len(serialized["data"]["val"][0]) == 2
+        assert serialized["data"]["val"][0][0]["tag"] == "set"
+        assert set(serialized["data"]["val"][0][0]["val"]) == {1, 2}
 
         deserialized = from_builtins(serialized)
         assert isinstance(deserialized.data, tuple)
@@ -929,12 +1005,13 @@ class TestCollectionCoverage:
         )
 
         serialized = to_builtins(original)
+        # Set and tuple are tagged even when empty
         assert serialized == {
             "tag": "empty_collections_node",
             "empty_list": [],
-            "empty_set": [],
+            "empty_set": {"tag": "set", "val": []},
             "empty_dict": {},
-            "empty_tuple": [],
+            "empty_tuple": {"tag": "tuple", "val": []},
         }
 
         deserialized = from_builtins(serialized)
@@ -985,6 +1062,76 @@ class TestMixedTypes:
 
 
 # =============================================================================
+# Test: Extended Types (format-specific native support)
+# =============================================================================
+
+
+class TestExtendedTypes:
+    """Test extended_types parameter for format-specific native type support."""
+
+    def test_datetime_tagged_by_default(self) -> None:
+        """Test that datetime is tagged when no extended_types specified (JSON)."""
+
+        class DateTimeNode(Node[None], tag="datetime_default"):
+            ts: datetime
+
+        node = DateTimeNode(ts=datetime(2024, 1, 15))
+        result = to_builtins(node)
+
+        # Default (JSON): datetime is tagged
+        assert result["ts"] == {"tag": "datetime", "val": "2024-01-15T00:00:00"}
+
+    def test_datetime_untagged_with_extended_types(self) -> None:
+        """Test that datetime is NOT tagged when in extended_types (e.g., YAML)."""
+
+        class DateTimeNode(Node[None], tag="datetime_extended"):
+            ts: datetime
+
+        node = DateTimeNode(ts=datetime(2024, 1, 15))
+        # Simulate YAML which has native datetime support
+        result = to_builtins(node, extended_types=frozenset({datetime}))
+
+        # With datetime in extended_types: no tag, just the encoded value
+        assert result["ts"] == "2024-01-15T00:00:00"
+
+    def test_mixed_extended_types(self) -> None:
+        """Test that only specified extended_types are untagged."""
+
+        class MixedNode(Node[None], tag="mixed_extended"):
+            dt: datetime
+            d: date
+            amt: Decimal
+
+        node = MixedNode(
+            dt=datetime(2024, 1, 15),
+            d=date(2024, 6, 15),
+            amt=Decimal("99.99"),
+        )
+        # Only datetime and date are extended (like YAML)
+        result = to_builtins(node, extended_types=frozenset({datetime, date}))
+
+        # datetime and date: untagged
+        assert result["dt"] == "2024-01-15T00:00:00"
+        assert result["d"] == "2024-06-15"
+        # Decimal: still tagged (not in extended_types)
+        assert result["amt"] == {"tag": "Decimal", "val": "99.99"}
+
+    def test_nested_extended_types(self) -> None:
+        """Test extended_types with nested structures."""
+
+        class NestedNode(Node[None], tag="nested_extended"):
+            dates: list[datetime]
+
+        node = NestedNode(
+            dates=[datetime(2024, 1, 1), datetime(2024, 12, 31)],
+        )
+        result = to_builtins(node, extended_types=frozenset({datetime}))
+
+        # Datetimes in list are untagged
+        assert result["dates"] == ["2024-01-01T00:00:00", "2024-12-31T00:00:00"]
+
+
+# =============================================================================
 # Test: Error Cases
 # =============================================================================
 
@@ -1018,7 +1165,11 @@ class TestCodecErrors:
         class DateNodeBad(Node[None], tag="date_node_bad"):
             day: date
 
-        data = {"tag": "date_node_bad", "day": "not-a-valid-date"}
+        # Data must be tagged - invalid date string will fail in decoder
+        data = {
+            "tag": "date_node_bad",
+            "day": {"tag": "date", "val": "not-a-valid-date"},
+        }
 
         with pytest.raises(ValueError, match="Invalid isoformat string"):
             from_builtins(data)
@@ -1095,11 +1246,17 @@ class TestRecursiveEncoding:
 
             serialized = to_builtins(node)
 
-            # The datetimes inside should be encoded to ISO strings
+            # External type is tagged, datetimes inside are also tagged
             assert serialized == {
                 "tag": "container_node_recursive",
                 "data": {
-                    "items": ["2024-01-01T00:00:00", "2024-06-15T00:00:00"],
+                    "tag": "Container",
+                    "val": {
+                        "items": [
+                            {"tag": "datetime", "val": "2024-01-01T00:00:00"},
+                            {"tag": "datetime", "val": "2024-06-15T00:00:00"},
+                        ],
+                    },
                 },
             }
         finally:
