@@ -3,22 +3,20 @@
 from __future__ import annotations
 
 import base64
-import types
 from collections.abc import Callable, Mapping, Sequence
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, fields, is_dataclass
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
-from typing import (
-    Any,
-    ClassVar,
-    get_args,
-    get_origin,
-    get_type_hints,
-)
+from typing import Any, ClassVar
 
 from typedsl.nodes import Node, Ref
 from typedsl.types import TypeDef
+
+# Type tag format: {"tag": "<type_name>", "val": <encoded_value>}
+# Used for non-format-native types to enable unambiguous decoding.
+_TAG_KEY = "tag"
+_VAL_KEY = "val"
 
 # Types already in schema.py's _TYPE_MAP (don't need ExternalType registration)
 _SCHEMA_BUILTINS: set[type] = {
@@ -34,6 +32,7 @@ _SCHEMA_BUILTINS: set[type] = {
     datetime,
     timedelta,
     list,
+    tuple,
     set,
     frozenset,
     dict,
@@ -106,6 +105,17 @@ class TypeCodecs:
         # Also register for schema extraction if it's an external type
         if typ not in _SCHEMA_BUILTINS:
             cls._ensure_external_registered(typ)
+
+    @classmethod
+    def get_decoder_by_name(
+        cls,
+        type_name: str,
+    ) -> tuple[type, Callable[[Any], Any]] | None:
+        """Get type and decoder by type name (for tag-based deserialization)."""
+        for typ, (_, decode) in cls._registry.items():
+            if typ.__name__ == type_name:
+                return typ, decode
+        return None
 
     @classmethod
     def _ensure_external_registered(cls, typ: type) -> ExternalTypeRecord:
@@ -191,23 +201,33 @@ def _register_builtins() -> None:
         decode=frozenset,
     )
 
+    TypeCodecs.register(
+        tuple,
+        encode=list,
+        decode=tuple,
+    )
+
 
 # Register builtins on module load
 _register_builtins()
 
 
-def to_builtins(obj: Any) -> Any:
+def _wrap_tagged(type_name: str, value: Any) -> dict[str, Any]:
+    """Wrap a value with its type tag for unambiguous encoding."""
+    return {_TAG_KEY: type_name, _VAL_KEY: value}
+
+
+def to_builtins(obj: Any, *, extended_types: frozenset[type] = frozenset()) -> Any:
     """Convert object tree to JSON-compatible Python builtins.
 
-    Handles:
-    - Registered codecs (external types, datetime, bytes, etc.)
-    - Node and Ref objects (adds tag field)
-    - TypeDef objects (for schema serialization)
-    - Containers (dict, list, tuple, set, frozenset)
-    - Primitives (str, int, float, bool, None)
+    Types with codecs that are NOT in extended_types are wrapped with type tags
+    for unambiguous decoding: {"tag": "<type_name>", "val": <encoded_value>}
 
     Args:
         obj: Any Python object to serialize
+        extended_types: Types the target format natively supports (don't need tags).
+            For JSON: frozenset() (no extended types)
+            For YAML: frozenset({datetime, date}) (has native date support)
 
     Returns:
         JSON-compatible Python value (dict, list, str, int, float, bool, None)
@@ -215,53 +235,85 @@ def to_builtins(obj: Any) -> Any:
     """
     typ = type(obj)
 
-    # 1. Registered codec (external types + builtins like bytes, datetime, set)
+    # 1. Registered codec (builtins + external types)
+    # Non-native types (tuple, set, frozenset, bytes, datetime, etc.) go through here
     if codec := TypeCodecs.get(typ):
         encode, _ = codec
-        return to_builtins(encode(obj))  # Recurse on encoded result
+        encoded = to_builtins(encode(obj), extended_types=extended_types)
+        # Tag if this type is NOT natively supported by the format
+        if typ not in extended_types:
+            return _wrap_tagged(typ.__name__, encoded)
+        return encoded
 
     # 2. Node objects
     if isinstance(obj, Node):
         node_cls: type[Node[Any]] = type(obj)
-        result: dict[str, Any] = {"tag": node_cls.tag}
+        result: dict[str, Any] = {_TAG_KEY: node_cls.tag}
         for f in fields(obj):
             if not f.name.startswith("_"):
-                result[f.name] = to_builtins(getattr(obj, f.name))
+                result[f.name] = to_builtins(
+                    getattr(obj, f.name),
+                    extended_types=extended_types,
+                )
         return result
 
     # 3. Ref objects
     if isinstance(obj, Ref):
-        return {"tag": "ref", "id": obj.id}
+        return {_TAG_KEY: "ref", "id": obj.id}
 
     # 4. TypeDef objects (for schema serialization)
     if isinstance(obj, TypeDef):
         typedef_cls: type[TypeDef] = type(obj)
-        result = {"tag": typedef_cls.tag}
+        result = {_TAG_KEY: typedef_cls.tag}
         for f in fields(obj):
             if not f.name.startswith("_"):
-                result[f.name] = to_builtins(getattr(obj, f.name))
+                result[f.name] = to_builtins(
+                    getattr(obj, f.name),
+                    extended_types=extended_types,
+                )
         return result
 
-    # 5. Sets and sequences (tuple becomes list, set becomes list)
+    # 5. Sequences (tuples/sets handled by codec above, lists become JSON arrays)
     if isinstance(obj, AbstractSet):
-        return [to_builtins(item) for item in obj]
+        # Should not reach here if set/frozenset have registered codecs
+        return [to_builtins(item, extended_types=extended_types) for item in obj]
     if isinstance(obj, Sequence) and not isinstance(obj, str | bytes):
-        return [to_builtins(item) for item in obj]
+        return [to_builtins(item, extended_types=extended_types) for item in obj]
 
     # 6. Mappings
     if isinstance(obj, Mapping):
-        return {k: to_builtins(v) for k, v in obj.items()}
+        return {
+            k: to_builtins(v, extended_types=extended_types) for k, v in obj.items()
+        }
 
     # 7. Generic dataclass support (for NodeSchema, FieldSchema, etc.)
     if is_dataclass(obj) and not isinstance(obj, type):
         return {
-            f.name: to_builtins(getattr(obj, f.name))
+            f.name: to_builtins(getattr(obj, f.name), extended_types=extended_types)
             for f in fields(obj)
             if not f.name.startswith("_")
         }
 
     # 8. Primitives pass through
     return obj
+
+
+def _is_type_tag(data: Any) -> bool:
+    """Check if data is a type tag envelope.
+
+    Type tags have exactly two keys: "tag" and "val".
+    This distinguishes them from Nodes (which have "tag" + field names)
+    and Refs (which have "tag" + "id").
+    """
+    if not isinstance(data, dict):
+        return False
+    keys = set(data.keys())
+    return keys == {_TAG_KEY, _VAL_KEY}
+
+
+def _unwrap_type_tag(data: dict[str, Any]) -> tuple[str, Any]:
+    """Unwrap a type tag envelope, returning (type_name, value)."""
+    return data[_TAG_KEY], data[_VAL_KEY]
 
 
 def from_builtins(data: dict[str, Any]) -> Node[Any] | Ref[Any]:
@@ -278,10 +330,10 @@ def from_builtins(data: dict[str, Any]) -> Node[Any] | Ref[Any]:
         ValueError: If tag is unknown
 
     """
-    if "tag" not in data:
-        msg = "Missing required 'tag' field"
+    if _TAG_KEY not in data:
+        msg = f"Missing required '{_TAG_KEY}' field"
         raise KeyError(msg)
-    tag = data["tag"]
+    tag = data[_TAG_KEY]
     if tag == "ref":
         return Ref(id=data["id"])
     if tag in Node.registry:
@@ -292,41 +344,56 @@ def from_builtins(data: dict[str, Any]) -> Node[Any] | Ref[Any]:
 
 def _deserialize_node(data: dict[str, Any]) -> Node[Any]:
     """Deserialize a tagged dict to a Node."""
-    tag = data["tag"]
+    tag = data[_TAG_KEY]
     node_cls = Node.registry.get(tag)
     if node_cls is None:
         msg = f"Unknown tag '{tag}'"
         raise ValueError(msg)
 
-    hints = get_type_hints(node_cls)
-
     field_values = {}
     for field in fields(node_cls):
         if field.name.startswith("_") or field.name not in data:
             continue
-        python_type = hints[field.name]
-        field_values[field.name] = _deserialize_value_with_type(
-            data[field.name],
-            python_type,
-        )
+        field_values[field.name] = _deserialize_value(data[field.name])
 
     return node_cls(**field_values)
 
 
-def _deserialize_value_with_type(value: Any, python_type: Any) -> Any:
-    """Deserialize a value using its type hint to guide reconstruction."""
+def _deserialize_value(value: Any) -> Any:
+    """Deserialize a value using tags for type reconstruction.
+
+    All non-native types are tagged, so we can deserialize without type hints.
+    """
     if value is None:
         return None
 
-    # Check for registered codec first (for non-generic types)
-    origin = get_origin(python_type)
-    if origin is None and (codec := TypeCodecs.get(python_type)):
-        _, decode = codec
-        return decode(value)
+    # Type tag envelope: {"tag": "<type>", "val": <value>}
+    if _is_type_tag(value):
+        tag_name, raw_value = _unwrap_type_tag(value)
 
-    # Tagged objects (nodes, refs)
-    if isinstance(value, dict) and "tag" in value:
-        tag = value["tag"]
+        # Tuple: recursively deserialize elements
+        if tag_name == "tuple":
+            return tuple(_deserialize_value(item) for item in raw_value)
+
+        # Look up registered decoder
+        decoder_info = TypeCodecs.get_decoder_by_name(tag_name)
+        if decoder_info is None:
+            msg = f"Unknown type tag: {tag_name}"
+            raise ValueError(msg)
+
+        tagged_type, decode = decoder_info
+
+        # For container types, recursively deserialize elements first
+        if tagged_type in (set, frozenset):
+            elements = [_deserialize_value(item) for item in raw_value]
+            return decode(elements)
+
+        # For other types (datetime, bytes, Decimal, etc.), decode directly
+        return decode(raw_value)
+
+    # Node/Ref objects: {"tag": "<node_type>", ...fields}
+    if isinstance(value, dict) and _TAG_KEY in value:
+        tag = value[_TAG_KEY]
         if tag == "ref":
             return Ref(id=value["id"])
         if tag in Node.registry:
@@ -334,60 +401,13 @@ def _deserialize_value_with_type(value: Any, python_type: Any) -> Any:
         msg = f"Unknown tag: {tag}"
         raise ValueError(msg)
 
-    args = get_args(python_type)
+    # Lists: recursively deserialize elements
+    if isinstance(value, list):
+        return [_deserialize_value(item) for item in value]
 
-    # Handle parameterized generic types
-    if origin is not None:
-        # Tuple - heterogeneous, each element has its own type
-        if origin is tuple and isinstance(value, list):
-            if not args or args == ((),):
-                # Empty tuple: tuple[()] or tuple[()]
-                return ()
-            return tuple(
-                _deserialize_value_with_type(item, arg)
-                for item, arg in zip(value, args, strict=False)
-            )
+    # Dicts without tags: recursively deserialize values
+    if isinstance(value, dict):
+        return {k: _deserialize_value(v) for k, v in value.items()}
 
-        # List - homogeneous
-        if origin is list and isinstance(value, list):
-            element_type = args[0] if args else Any
-            return [_deserialize_value_with_type(item, element_type) for item in value]
-
-        # Set - homogeneous (JSON array -> set)
-        if origin is set and isinstance(value, list):
-            element_type = args[0] if args else Any
-            return {_deserialize_value_with_type(item, element_type) for item in value}
-
-        # Frozenset - homogeneous (JSON array -> frozenset)
-        if origin is frozenset and isinstance(value, list):
-            element_type = args[0] if args else Any
-            return frozenset(
-                _deserialize_value_with_type(item, element_type) for item in value
-            )
-
-        # Sequence (abstract) -> list
-        if origin is Sequence and isinstance(value, list):
-            element_type = args[0] if args else Any
-            return [_deserialize_value_with_type(item, element_type) for item in value]
-
-        # Dict/Mapping
-        if origin in (dict, Mapping) and isinstance(value, dict):
-            value_type = args[1] if len(args) > 1 else Any
-            return {
-                k: _deserialize_value_with_type(v, value_type) for k, v in value.items()
-            }
-
-        # Union - try each option
-        if origin is types.UnionType:
-            for option in args:
-                if option is type(None) and value is None:
-                    return None
-                if option is not type(None):
-                    try:
-                        return _deserialize_value_with_type(value, option)
-                    except (TypeError, ValueError):
-                        continue
-            return value
-
-    # Primitives and unknown types - return as-is
+    # Primitives pass through
     return value
