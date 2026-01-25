@@ -73,8 +73,10 @@ class TypeCodecs:
         # No explicit registration needed unless serialization is required.
     """
 
+    # Registry keyed by type name for O(1) lookup during deserialization.
+    # Value is (type, encode, decode) - type enables identity checks on serialization.
     _registry: ClassVar[
-        dict[type, tuple[Callable[[Any], Any], Callable[[Any], Any]]]
+        dict[str, tuple[type, Callable[[Any], Any], Callable[[Any], Any]]]
     ] = {}
     _external_types: ClassVar[dict[type, ExternalTypeRecord]] = {}
 
@@ -104,18 +106,19 @@ class TypeCodecs:
             )
 
         """
-        # Check for name collision with a DIFFERENT type
         type_name = typ.__name__
-        for existing_type in cls._registry:
-            if existing_type is not typ and existing_type.__name__ == type_name:
-                msg = (
-                    f"Cannot register {typ!r}: a different type with name "
-                    f"'{type_name}' is already registered ({existing_type!r}). "
-                    f"Type names must be unique for tag-based deserialization."
-                )
-                raise ValueError(msg)
 
-        cls._registry[typ] = (encode, decode)
+        # Check for name collision with a DIFFERENT type
+        existing = cls._registry.get(type_name)
+        if existing is not None and existing[0] is not typ:
+            msg = (
+                f"Cannot register {typ!r}: a different type with name "
+                f"'{type_name}' is already registered ({existing[0]!r}). "
+                f"Type names must be unique for tag-based deserialization."
+            )
+            raise ValueError(msg)
+
+        cls._registry[type_name] = (typ, encode, decode)
 
         # Also register for schema extraction if it's an external type
         if typ not in _SCHEMA_BUILTINS:
@@ -127,7 +130,10 @@ class TypeCodecs:
         typ: type[T],
     ) -> tuple[Callable[[T], Any], Callable[[Any], T]] | None:
         """Get codec for type, or None if not registered."""
-        return cls._registry.get(typ)
+        entry = cls._registry.get(typ.__name__)
+        if entry is not None and entry[0] is typ:
+            return entry[1], entry[2]
+        return None
 
     @classmethod
     def get_by_name(
@@ -135,9 +141,9 @@ class TypeCodecs:
         type_name: str,
     ) -> tuple[type, Callable[[Any], Any]] | None:
         """Get type and decoder by type name (for tag-based deserialization)."""
-        for typ, (_, decode) in cls._registry.items():
-            if typ.__name__ == type_name:
-                return typ, decode
+        entry = cls._registry.get(type_name)
+        if entry is not None:
+            return entry[0], entry[2]
         return None
 
     @classmethod
@@ -170,8 +176,10 @@ class TypeCodecs:
             True if the type was registered and removed, False otherwise.
 
         """
-        if typ in cls._registry:
-            del cls._registry[typ]
+        type_name = typ.__name__
+        entry = cls._registry.get(type_name)
+        if entry is not None and entry[0] is typ:
+            del cls._registry[type_name]
             return True
         return False
 
