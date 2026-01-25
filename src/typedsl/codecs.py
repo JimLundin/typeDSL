@@ -92,6 +92,10 @@ class TypeCodecs:
             encode: Function to convert T → JSON-compatible builtins
             decode: Function to convert JSON-compatible builtins → T
 
+        Raises:
+            ValueError: If a different type with the same __name__ is already
+                registered. This ensures tag-based deserialization is unambiguous.
+
         Example:
             TypeCodecs.register(
                 datetime,
@@ -100,6 +104,17 @@ class TypeCodecs:
             )
 
         """
+        # Check for name collision with a DIFFERENT type
+        type_name = typ.__name__
+        for existing_type in cls._registry:
+            if existing_type is not typ and existing_type.__name__ == type_name:
+                msg = (
+                    f"Cannot register {typ!r}: a different type with name "
+                    f"'{type_name}' is already registered ({existing_type!r}). "
+                    f"Type names must be unique for tag-based deserialization."
+                )
+                raise ValueError(msg)
+
         cls._registry[typ] = (encode, decode)
 
         # Also register for schema extraction if it's an external type
@@ -107,7 +122,15 @@ class TypeCodecs:
             cls._ensure_external_registered(typ)
 
     @classmethod
-    def get_decoder_by_name(
+    def get[T](
+        cls,
+        typ: type[T],
+    ) -> tuple[Callable[[T], Any], Callable[[Any], T]] | None:
+        """Get codec for type, or None if not registered."""
+        return cls._registry.get(typ)
+
+    @classmethod
+    def get_by_name(
         cls,
         type_name: str,
     ) -> tuple[type, Callable[[Any], Any]] | None:
@@ -128,14 +151,6 @@ class TypeCodecs:
         return cls._external_types[typ]
 
     @classmethod
-    def get[T](
-        cls,
-        typ: type[T],
-    ) -> tuple[Callable[[T], Any], Callable[[Any], T]] | None:
-        """Get codec for type, or None if not registered."""
-        return cls._registry.get(typ)
-
-    @classmethod
     def get_external_type(cls, typ: type) -> ExternalTypeRecord:
         """Get external type record for schema extraction.
 
@@ -143,6 +158,22 @@ class TypeCodecs:
         external types to be used in Node fields without explicit registration.
         """
         return cls._ensure_external_registered(typ)
+
+    @classmethod
+    def unregister(cls, typ: type) -> bool:
+        """Unregister a type's codec.
+
+        Args:
+            typ: The type to unregister
+
+        Returns:
+            True if the type was registered and removed, False otherwise.
+
+        """
+        if typ in cls._registry:
+            del cls._registry[typ]
+            return True
+        return False
 
     @classmethod
     def clear(cls) -> None:
@@ -376,12 +407,12 @@ def _deserialize_value(value: Any) -> Any:
             return tuple(_deserialize_value(item) for item in raw_value)
 
         # Look up registered decoder
-        decoder_info = TypeCodecs.get_decoder_by_name(tag_name)
-        if decoder_info is None:
+        codec_entry = TypeCodecs.get_by_name(tag_name)
+        if codec_entry is None:
             msg = f"Unknown type tag: {tag_name}"
             raise ValueError(msg)
 
-        tagged_type, decode = decoder_info
+        tagged_type, decode = codec_entry
 
         # For container types, recursively deserialize elements first
         if tagged_type in (set, frozenset):
