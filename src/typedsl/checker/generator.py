@@ -6,10 +6,10 @@ by comparing declared field types against actual values.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, get_args, get_origin, get_type_hints
+from typing import TYPE_CHECKING, Any, TypeVar, get_args, get_origin, get_type_hints
 
 from typedsl.checker.constraints import Constraint, Location
-from typedsl.checker.types import TCon, TExpr, TVarFactory, from_hint
+from typedsl.checker.types import TCon, TExpr, TVar, TVarFactory, from_hint
 from typedsl.nodes import Node, Ref
 
 if TYPE_CHECKING:
@@ -81,25 +81,24 @@ class ConstraintGenerator:
         return self.constraints
 
     def _collect_node_return_types(self) -> None:
-        """Collect return types for all named nodes in the program."""
+        """Pre-allocate TVars for named nodes with TypeVar return types.
+
+        For nodes with concrete return types, we compute them on first visit.
+        For nodes with TypeVar return types, we allocate a TVar placeholder
+        that will be unified when the node is visited.
+        """
         for node_id, node in self.program.nodes.items():
-            return_type = get_node_return_type(type(node))
-            if return_type is not None:
-                self._node_return_types[node_id] = from_hint(return_type)
+            return_type_hint = get_node_return_type(type(node))
+            # Check if the return type involves a TypeVar
+            is_concrete = return_type_hint is not None and not isinstance(
+                return_type_hint,
+                TypeVar,
+            )
+            if is_concrete:
+                self._node_return_types[node_id] = from_hint(return_type_hint)
             else:
-                # Unknown return type - use a fresh type variable
+                # TypeVar or unknown - allocate a fresh TVar
                 self._node_return_types[node_id] = self.var_factory.fresh()
-
-    def _get_node_return_texpr(self, node: Node[Any], node_id: str | None) -> TExpr:
-        """Get the return type TExpr for a node."""
-        if node_id is not None and node_id in self._node_return_types:
-            return self._node_return_types[node_id]
-
-        return_type = get_node_return_type(type(node))
-        if return_type is not None:
-            return from_hint(return_type)
-
-        return self.var_factory.fresh()
 
     def _visit_ref(self, ref: Ref[Any], path: tuple[str, ...]) -> TExpr:
         """Visit a reference and return its type."""
@@ -128,6 +127,9 @@ class ConstraintGenerator:
         node_class = type(node)
         node_tag = node_class.tag
 
+        # Create a fresh TypeVar -> TVar mapping for this node
+        typevar_map: dict[TypeVar, TVar] = {}
+
         try:
             hints = get_type_hints(node_class)
         except Exception:  # noqa: BLE001
@@ -147,14 +149,33 @@ class ConstraintGenerator:
                 path=path,
             )
 
-            declared_texpr = from_hint(declared_type)
+            declared_texpr = from_hint(declared_type, typevar_map, self.var_factory)
             actual_texpr = self._infer_type(value, declared_type, path, field_name)
 
             self.constraints.append(
                 Constraint(left=declared_texpr, right=actual_texpr, location=location),
             )
 
-        return_type = self._get_node_return_texpr(node, node_id)
+        # Get return type using the same TypeVar mapping
+        return_type_hint = get_node_return_type(node_class)
+        if return_type_hint is not None:
+            return_type = from_hint(return_type_hint, typevar_map, self.var_factory)
+        else:
+            return_type = self.var_factory.fresh()
+
+        # If this is a named node, emit constraint to unify with pre-allocated type
+        if node_id is not None and node_id in self._node_return_types:
+            pre_allocated = self._node_return_types[node_id]
+            location = Location(
+                node_tag=node_tag,
+                node_id=node_id,
+                field_name=None,
+                path=path,
+            )
+            self.constraints.append(
+                Constraint(left=pre_allocated, right=return_type, location=location),
+            )
+
         return TCon(Node, (return_type,))
 
     def _infer_list_type(

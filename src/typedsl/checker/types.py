@@ -7,7 +7,7 @@ type checker. It's independent of the schema module.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, get_args, get_origin
+from typing import Any, TypeVar, get_args, get_origin
 
 
 @dataclass(frozen=True)
@@ -62,13 +62,20 @@ class TVarFactory:
         return var
 
 
-def from_hint(hint: Any) -> TExpr:
+def from_hint(
+    hint: Any,
+    typevar_map: dict[TypeVar, TVar] | None = None,
+    var_factory: TVarFactory | None = None,
+) -> TExpr:
     """Convert a Python type hint to a TExpr.
 
     Uses get_origin() and get_args() to decompose generic types.
+    Handles TypeVars by mapping them to TVars.
 
     Args:
         hint: A Python type hint (e.g., int, list[int], dict[str, float])
+        typevar_map: Optional mapping from TypeVar to TVar for consistency.
+        var_factory: Optional factory for creating fresh TVars.
 
     Returns:
         The corresponding TExpr representation.
@@ -89,14 +96,25 @@ def from_hint(hint: Any) -> TExpr:
         # Handle special cases like None
         if hint is None:
             return TCon(type(None))
-        # For other cases (e.g., forward references), return as-is if it's a type
-        # This shouldn't happen in well-formed programs
+        # Handle TypeVar
+        if isinstance(hint, TypeVar):
+            if typevar_map is not None and hint in typevar_map:
+                return typevar_map[hint]
+            if var_factory is not None:
+                tvar = var_factory.fresh()
+                if typevar_map is not None:
+                    typevar_map[hint] = tvar
+                return tvar
+            # No factory provided - use a deterministic ID based on TypeVar name
+            # This is a fallback; prefer using var_factory
+            return TVar(hash(hint.__name__) % 10000)
+        # For other cases (e.g., forward references)
         msg = f"Cannot convert hint to TExpr: {hint!r}"
         raise TypeError(msg)
 
     # Generic type like list[int], dict[str, float], etc.
     args = get_args(hint)
-    converted_args = tuple(from_hint(arg) for arg in args)
+    converted_args = tuple(from_hint(arg, typevar_map, var_factory) for arg in args)
     return TCon(origin, converted_args)
 
 

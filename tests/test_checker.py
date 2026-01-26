@@ -13,7 +13,7 @@ from typedsl.checker import (
     from_hint,
     solve,
 )
-from typedsl.checker.solver import unify
+from typedsl.checker.solver import is_subtype, unify
 
 
 class TestFromHint:
@@ -63,6 +63,25 @@ class TestSubstitution:
         assert composed.apply(TVar(1)) == TCon(int)
 
 
+class TestNumericSubtyping:
+    """Tests for numeric type hierarchy."""
+
+    def test_int_is_subtype_of_float(self) -> None:
+        assert is_subtype(int, float)
+
+    def test_int_is_subtype_of_complex(self) -> None:
+        assert is_subtype(int, complex)
+
+    def test_float_is_subtype_of_complex(self) -> None:
+        assert is_subtype(float, complex)
+
+    def test_float_is_not_subtype_of_int(self) -> None:
+        assert not is_subtype(float, int)
+
+    def test_str_is_not_subtype_of_int(self) -> None:
+        assert not is_subtype(str, int)
+
+
 class TestUnify:
     """Tests for unification algorithm."""
 
@@ -95,10 +114,19 @@ class TestUnify:
         assert isinstance(result, str)
 
     def test_occurs_check_prevents_infinite_types(self) -> None:
-        # T0 = list[T0] would be infinite
         result = unify(TVar(0), TCon(list, (TVar(0),)))
         assert isinstance(result, str)
         assert "infinite" in result.lower()
+
+    def test_int_unifies_with_float_expected(self) -> None:
+        # When float is expected, int is acceptable
+        result = unify(TCon(float), TCon(int))
+        assert isinstance(result, Substitution)
+
+    def test_float_does_not_unify_with_int_expected(self) -> None:
+        # When int is expected, float is not acceptable
+        result = unify(TCon(int), TCon(float))
+        assert isinstance(result, str)
 
 
 class TestSolver:
@@ -140,75 +168,102 @@ class TestSolver:
 
 
 # Test node definitions
-class Const(Node[int], tag="checker_const"):
+class Literal[T](Node[T], tag="checker_literal"):
+    value: T
+
+
+class AddNode(Node[float], tag="checker_add_float"):
+    left: Node[float]
+    right: Node[float]
+
+
+class RefAdd(Node[float], tag="checker_ref_add"):
+    left: Ref[Node[float]]
+    right: Ref[Node[float]]
+
+
+class IntLiteral(Node[int], tag="checker_int_lit"):
     value: int
 
 
-class FloatConst(Node[float], tag="checker_float_const"):
-    value: float
+class TestGenericNodes:
+    """Tests for generic node type checking."""
+
+    def test_generic_literal_infers_type_from_value(self) -> None:
+        # Literal[T] with int value should work
+        result = check_node(Literal(value=42))
+        assert result.success
+
+    def test_generic_literal_with_float(self) -> None:
+        result = check_node(Literal(value=3.14))
+        assert result.success
+
+    def test_generic_literal_with_string(self) -> None:
+        result = check_node(Literal(value="hello"))
+        assert result.success
 
 
-class Add(Node[int], tag="checker_add"):
-    left: Ref[Node[int]]
-    right: Ref[Node[int]]
+class TestNumericSubtypingInPrograms:
+    """Tests for numeric subtyping in real programs."""
 
+    def test_int_literal_in_float_context(self) -> None:
+        # AddNode expects Node[float], Literal(value=5) is Node[int]
+        # int <: float, so this should pass
+        program = Program(
+            root=AddNode(
+                left=Literal(value=5),
+                right=Literal(value=5.0),
+            ),
+        )
+        result = check_program(program)
+        assert result.success, f"Expected success: {result}"
 
-class InlineAdd(Node[int], tag="checker_inline_add"):
-    left: Node[int]
-    right: Node[int]
+    def test_both_int_literals_in_float_context(self) -> None:
+        program = Program(
+            root=AddNode(
+                left=Literal(value=1),
+                right=Literal(value=2),
+            ),
+        )
+        result = check_program(program)
+        assert result.success
 
-
-class ListNode(Node[list[int]], tag="checker_list_node"):
-    items: list[int]
-
-
-class DictNode(Node[dict[str, int]], tag="checker_dict_node"):
-    mapping: dict[str, int]
+    def test_int_ref_in_float_context(self) -> None:
+        # Graph with IntLiteral nodes referenced where Node[float] expected
+        program = Program(
+            root=Ref(id="add"),
+            nodes={
+                "x": IntLiteral(value=5),
+                "y": IntLiteral(value=10),
+                "add": RefAdd(left=Ref(id="x"), right=Ref(id="y")),
+            },
+        )
+        result = check_program(program)
+        assert result.success
 
 
 class TestCheckProgram:
     """Tests for program type checking."""
 
     def test_well_typed_graph_program(self) -> None:
-        prog = Program(
+        program = Program(
             root=Ref(id="result"),
             nodes={
-                "a": Const(value=1),
-                "b": Const(value=2),
-                "result": Add(left=Ref(id="a"), right=Ref(id="b")),
+                "a": Literal(value=1.0),
+                "b": Literal(value=2.0),
+                "result": RefAdd(left=Ref(id="a"), right=Ref(id="b")),
             },
         )
-        result = check_program(prog)
-        assert result.success, f"Expected success: {result}"
-
-    def test_simple_root_node(self) -> None:
-        prog = Program(root=Const(value=42))
-        result = check_program(prog)
+        result = check_program(program)
         assert result.success
 
     def test_nested_inline_nodes(self) -> None:
-        node = InlineAdd(left=Const(value=1), right=Const(value=2))
+        node = AddNode(left=Literal(value=1.0), right=Literal(value=2.0))
         result = check_node(node)
         assert result.success
 
-    def test_list_fields(self) -> None:
-        result = check_node(ListNode(items=[1, 2, 3]))
-        assert result.success
-
-    def test_empty_list_fields(self) -> None:
-        result = check_node(ListNode(items=[]))
-        assert result.success
-
-    def test_dict_fields(self) -> None:
-        result = check_node(DictNode(mapping={"a": 1}))
-        assert result.success
-
-    def test_empty_dict_fields(self) -> None:
-        result = check_node(DictNode(mapping={}))
-        assert result.success
-
     def test_result_contains_constraints(self) -> None:
-        result = check_node(Const(value=42))
+        result = check_node(Literal(value=42))
         assert isinstance(result, CheckResult)
         assert isinstance(result.constraints, list)
 

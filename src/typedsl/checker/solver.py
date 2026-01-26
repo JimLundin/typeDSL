@@ -137,18 +137,40 @@ def occurs_in(var: TVar, texpr: TExpr) -> bool:
             return any(occurs_in(var, arg) for arg in args)
 
 
+# Numeric type hierarchy for subtype checking: int <: float <: complex
+NUMERIC_SUBTYPES: dict[type, set[type]] = {
+    int: {int, float, complex},
+    float: {float, complex},
+    complex: {complex},
+}
+
+
+def is_subtype(sub: type, sup: type) -> bool:
+    """Check if sub is a subtype of sup.
+
+    Handles numeric tower: int <: float <: complex.
+    """
+    if sub == sup:
+        return True
+    if sub in NUMERIC_SUBTYPES:
+        return sup in NUMERIC_SUBTYPES[sub]
+    return False
+
+
 def unify(left: TExpr, right: TExpr) -> Substitution | str:
     """Unify two type expressions.
 
-    Given two type expressions, find a substitution that makes them equal,
+    Given two type expressions, find a substitution that makes them compatible,
     or return an error message if unification is impossible.
 
+    Handles numeric subtyping: int is compatible with float, float with complex.
+
     Args:
-        left: The first type expression.
-        right: The second type expression.
+        left: The expected type expression.
+        right: The actual type expression.
 
     Returns:
-        A Substitution that makes the types equal, or an error string.
+        A Substitution that makes the types compatible, or an error string.
 
     """
     match (left, right):
@@ -178,8 +200,11 @@ def unify(left: TExpr, right: TExpr) -> Substitution | str:
 
         # Both TCon
         case (TCon(con=lcon, args=largs), TCon(con=rcon, args=rargs)):
-            # Constructors must match
+            # Check for numeric subtyping (right is subtype of left)
             if lcon != rcon:
+                if is_subtype(rcon, lcon):
+                    # Actual type is subtype of expected - compatible
+                    return Substitution()
                 return f"Type mismatch: {texpr_to_str(left)} vs {texpr_to_str(right)}"
 
             # Arities must match
