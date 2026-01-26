@@ -186,6 +186,19 @@ class IntLiteral(Node[int], tag="checker_int_lit"):
     value: int
 
 
+class NumericLiteral[T: int | float](Node[T], tag="checker_numeric_lit"):
+    """A literal that only accepts numeric types (int or float)."""
+
+    value: T
+
+
+class NumericAdd[T: int | float](Node[T], tag="checker_numeric_add"):
+    """Addition node that only accepts numeric types."""
+
+    left: Node[T]
+    right: Node[T]
+
+
 class TestGenericNodes:
     """Tests for generic node type checking."""
 
@@ -237,6 +250,48 @@ class TestNumericSubtypingInPrograms:
                 "y": IntLiteral(value=10),
                 "add": RefAdd(left=Ref(id="x"), right=Ref(id="y")),
             },
+        )
+        result = check_program(program)
+        assert result.success
+
+
+class TestBoundedTypeVars:
+    """Tests for bounded type variables."""
+
+    def test_bounded_numeric_literal_with_int(self) -> None:
+        """NumericLiteral[T: int | float] should accept int."""
+        result = check_node(NumericLiteral(value=42))
+        assert result.success
+
+    def test_bounded_numeric_literal_with_float(self) -> None:
+        """NumericLiteral[T: int | float] should accept float."""
+        result = check_node(NumericLiteral(value=3.14))
+        assert result.success
+
+    def test_bounded_numeric_literal_with_string_fails(self) -> None:
+        """NumericLiteral[T: int | float] should reject str."""
+        result = check_node(NumericLiteral(value="hello"))  # type: ignore[arg-type]
+        assert not result.success
+        assert any("str" in str(e).lower() for e in result.errors)
+
+    def test_bounded_numeric_add_with_ints(self) -> None:
+        """NumericAdd should work with int literals."""
+        program = Program(
+            root=NumericAdd(
+                left=NumericLiteral(value=1),
+                right=NumericLiteral(value=2),
+            ),
+        )
+        result = check_program(program)
+        assert result.success
+
+    def test_bounded_numeric_add_with_floats(self) -> None:
+        """NumericAdd should work with float literals."""
+        program = Program(
+            root=NumericAdd(
+                left=NumericLiteral(value=1.5),
+                right=NumericLiteral(value=2.5),
+            ),
         )
         result = check_program(program)
         assert result.success

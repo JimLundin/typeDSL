@@ -37,7 +37,7 @@ from typing import TYPE_CHECKING, Any
 
 from typedsl.ast import Program
 from typedsl.checker.constraints import Constraint, Location
-from typedsl.checker.generator import generate_constraints
+from typedsl.checker.generator import GeneratorResult, generate_constraints
 from typedsl.checker.solver import SolverResult, Substitution, TypeCheckError, solve
 from typedsl.checker.types import (
     TCon,
@@ -91,16 +91,16 @@ def check_program(program: Program) -> CheckResult:
 
     """
     # Step 1: Generate constraints
-    constraints = generate_constraints(program)
+    gen_result = generate_constraints(program)
 
-    # Step 2: Solve constraints
-    solver_result = solve(constraints)
+    # Step 2: Solve constraints with bounds checking
+    solver_result = solve(gen_result.constraints, gen_result.bounds)
 
     return CheckResult(
         success=solver_result.success,
         errors=solver_result.errors,
         substitution=solver_result.substitution,
-        constraints=constraints,
+        constraints=gen_result.constraints,
     )
 
 
@@ -125,6 +125,8 @@ __all__ = [
     "CheckResult",
     # Constraints (for advanced use)
     "Constraint",
+    # Generator (for advanced use)
+    "GeneratorResult",
     "Location",
     # Solver (for advanced use)
     "SolverResult",
@@ -139,7 +141,6 @@ __all__ = [
     # Public API
     "check_program",
     "from_hint",
-    # Generator (for advanced use)
     "generate_constraints",
     "solve",
     "texpr_to_str",

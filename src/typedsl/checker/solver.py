@@ -247,15 +247,59 @@ class SolverResult:
     errors: list[TypeCheckError] = field(default_factory=list)
 
 
-def solve(constraints: list[Constraint]) -> SolverResult:
+def check_bounds(
+    substitution: Substitution,
+    bounds: dict[int, tuple[type, ...]],
+) -> list[str]:
+    """Check that resolved types satisfy their bounds.
+
+    Args:
+        substitution: The solved substitution.
+        bounds: Mapping from TVar ID to allowed bound types.
+
+    Returns:
+        List of error messages for bound violations.
+
+    """
+    errors: list[str] = []
+
+    for var_id, bound_types in bounds.items():
+        resolved = substitution.apply(TVar(var_id))
+
+        # If still a variable, no bound check needed
+        if isinstance(resolved, TVar):
+            continue
+
+        # Must be a TCon - check if it's one of the allowed types
+        if isinstance(resolved, TCon) and not resolved.args:
+            actual_type = resolved.con
+            # Check if actual_type is one of the bounds or a subtype of one
+            is_valid = any(
+                is_subtype(actual_type, bound_type) for bound_type in bound_types
+            )
+            if not is_valid:
+                bound_names = " | ".join(t.__name__ for t in bound_types)
+                errors.append(
+                    f"Type {actual_type.__name__} does not satisfy bound {bound_names}",
+                )
+
+    return errors
+
+
+def solve(
+    constraints: list[Constraint],
+    bounds: dict[int, tuple[type, ...]] | None = None,
+) -> SolverResult:
     """Solve a list of type constraints.
 
     Processes constraints in order, applying unification and accumulating
     the substitution. Records errors with location information if
-    unification fails.
+    unification fails. Also checks that bounded type variables resolve
+    to types within their bounds.
 
     Args:
         constraints: The list of constraints to solve.
+        bounds: Optional mapping from TVar ID to allowed bound types.
 
     Returns:
         A SolverResult indicating success/failure and any errors.
@@ -285,6 +329,15 @@ def solve(constraints: list[Constraint]) -> SolverResult:
         else:
             # Compose the new substitution
             result = result.compose(unify_result)
+
+    # Check bounds after solving
+    if bounds:
+        bound_errors = check_bounds(result, bounds)
+        default_loc = constraints[0].location if constraints else None
+        errors.extend(
+            TypeCheckError(message=msg, location=default_loc)  # type: ignore[arg-type]
+            for msg in bound_errors
+        )
 
     return SolverResult(
         success=len(errors) == 0,

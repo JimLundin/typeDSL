@@ -6,6 +6,7 @@ by comparing declared field types against actual values.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeVar, get_args, get_origin, get_type_hints
 
 from typedsl.checker.constraints import Constraint, Location
@@ -332,15 +333,33 @@ class ConstraintGenerator:
         return TCon(type(value))
 
 
-def generate_constraints(program: Program) -> list[Constraint]:
+@dataclass
+class GeneratorResult:
+    """Result of constraint generation.
+
+    Attributes:
+        constraints: The generated type constraints.
+        bounds: Mapping from TVar ID to allowed bound types.
+
+    """
+
+    constraints: list[Constraint]
+    bounds: dict[int, tuple[type, ...]]
+
+
+def generate_constraints(program: Program) -> GeneratorResult:
     """Generate type constraints for a program.
 
     Args:
         program: The program to generate constraints for.
 
     Returns:
-        A list of type constraints.
+        A GeneratorResult with constraints and bounds.
 
     """
     generator = ConstraintGenerator(program)
-    return generator.generate()
+    constraints = generator.generate()
+    return GeneratorResult(
+        constraints=constraints,
+        bounds=generator.var_factory.bounds,
+    )
