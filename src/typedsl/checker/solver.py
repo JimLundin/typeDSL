@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from typedsl.checker.constraints import (
     Constraint,
+    EqualityConstraint,
     SubtypeConstraint,
 )
 from typedsl.checker.types import TCon, TExpr, TVar, texpr_to_str
@@ -309,47 +310,41 @@ def solve(constraints: list[Constraint]) -> SolverResult:
         A SolverResult indicating success/failure and any errors.
 
     """
-    result = Substitution()
+    substitution = Substitution()
     errors: list[TypeCheckError] = []
     subtype_constraints: list[SubtypeConstraint] = []
 
     # First pass: process equality constraints and collect subtype constraints
     for constraint in constraints:
-        if isinstance(constraint, SubtypeConstraint):
-            subtype_constraints.append(constraint)
-            continue
+        match constraint:
+            case SubtypeConstraint():
+                subtype_constraints.append(constraint)
+            case EqualityConstraint(left=left, right=right, location=location):
+                left_resolved = substitution.apply(left)
+                right_resolved = substitution.apply(right)
+                unify_result = unify(left_resolved, right_resolved)
 
-        # Handle equality constraint
-        left = result.apply(constraint.left)
-        right = result.apply(constraint.right)
-
-        unify_result = unify(left, right)
-
-        if isinstance(unify_result, str):
-            errors.append(
-                TypeCheckError(
-                    message=unify_result,
-                    location=constraint.location,
-                    expected=left,
-                    actual=right,
-                ),
-            )
-        else:
-            result = result.compose(unify_result)
+                if isinstance(unify_result, str):
+                    errors.append(
+                        TypeCheckError(
+                            message=unify_result,
+                            location=location,
+                            expected=left_resolved,
+                            actual=right_resolved,
+                        ),
+                    )
+                else:
+                    substitution = substitution.compose(unify_result)
 
     # Second pass: check subtype constraints with final substitution
-    for constraint in subtype_constraints:
-        error_msg = check_subtype_constraint(constraint, result)
-        if error_msg:
-            errors.append(
-                TypeCheckError(
-                    message=error_msg,
-                    location=constraint.location,
-                ),
-            )
+    errors.extend(
+        TypeCheckError(message=msg, location=c.location)
+        for c in subtype_constraints
+        if (msg := check_subtype_constraint(c, substitution))
+    )
 
     return SolverResult(
         success=len(errors) == 0,
-        substitution=result,
+        substitution=substitution,
         errors=errors,
     )

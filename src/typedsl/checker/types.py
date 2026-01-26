@@ -119,40 +119,52 @@ def from_hint(
         TCon(list, (TCon(int),))
 
     """
-    origin = get_origin(hint)
+    # Generic types like list[int], dict[str, float]
+    if origin := get_origin(hint):
+        args = get_args(hint)
+        converted_args = tuple(from_hint(arg, typevar_map, var_factory) for arg in args)
+        return TCon(origin, converted_args)
 
-    if origin is None:
-        # Simple type like int, str, or a class
-        if isinstance(hint, type):
-            return TCon(hint)
-        # Handle special cases like None
-        if hint is None:
-            return TCon(type(None))
-        # Handle TypeVar
-        if isinstance(hint, TypeVar):
-            if typevar_map is not None and hint in typevar_map:
-                return typevar_map[hint]
-            if var_factory is not None:
-                # Check for bounds
-                bound_types = get_typevar_bound_types(hint)
-                if bound_types is not None:
-                    tvar = var_factory.fresh_with_bound(bound_types)
-                else:
-                    tvar = var_factory.fresh()
-                if typevar_map is not None:
-                    typevar_map[hint] = tvar
-                return tvar
-            # No factory provided - use a deterministic ID based on TypeVar name
-            # This is a fallback; prefer using var_factory
-            return TVar(hash(hint.__name__) % 10000)
-        # For other cases (e.g., forward references)
-        msg = f"Cannot convert hint to TExpr: {hint!r}"
-        raise TypeError(msg)
+    # Simple type like int, str, or a class
+    if isinstance(hint, type):
+        return TCon(hint)
 
-    # Generic type like list[int], dict[str, float], etc.
-    args = get_args(hint)
-    converted_args = tuple(from_hint(arg, typevar_map, var_factory) for arg in args)
-    return TCon(origin, converted_args)
+    # None literal
+    if hint is None:
+        return TCon(type(None))
+
+    # TypeVar handling
+    if isinstance(hint, TypeVar):
+        return _typevar_to_tvar(hint, typevar_map, var_factory)
+
+    msg = f"Cannot convert hint to TExpr: {hint!r}"
+    raise TypeError(msg)
+
+
+def _typevar_to_tvar(
+    hint: TypeVar,
+    typevar_map: dict[TypeVar, TVar] | None,
+    var_factory: TVarFactory | None,
+) -> TVar:
+    """Convert a TypeVar to a TVar, reusing existing mapping if present."""
+    # Check if already mapped
+    if typevar_map is not None and hint in typevar_map:
+        return typevar_map[hint]
+
+    # Create new TVar
+    if var_factory is not None:
+        bound_types = get_typevar_bound_types(hint)
+        tvar = (
+            var_factory.fresh_with_bound(bound_types)
+            if bound_types
+            else var_factory.fresh()
+        )
+        if typevar_map is not None:
+            typevar_map[hint] = tvar
+        return tvar
+
+    # Fallback: deterministic ID based on TypeVar name
+    return TVar(hash(hint.__name__) % 10000)
 
 
 def texpr_to_str(texpr: TExpr) -> str:
