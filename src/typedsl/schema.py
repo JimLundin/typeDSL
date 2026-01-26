@@ -217,19 +217,21 @@ def _extract_node_type(
 
 def node_schema(cls: type[Node[Any]]) -> NodeSchema:
     """Get schema for a node class."""
-    hints = get_type_hints(cls)
+    # Build localns with type parameters so get_type_hints can resolve them
+    cls_type_params = getattr(cls, "__type_params__", ())
+    localns = {tp.__name__: tp for tp in cls_type_params}
+    hints = get_type_hints(cls, localns=localns)
 
     type_params: list[TypeParameter] = []
-    if hasattr(cls, "__type_params__"):
-        for param in cls.__type_params__:
-            if isinstance(param, TypeVar):
-                bound = getattr(param, "__bound__", None)
-                type_params.append(
-                    TypeParameter(
-                        name=param.__name__,
-                        bound=extract_type(bound) if bound is not None else None,
-                    ),
-                )
+    for param in cls_type_params:
+        if isinstance(param, TypeVar):
+            bound = getattr(param, "__bound__", None)
+            type_params.append(
+                TypeParameter(
+                    name=param.__name__,
+                    bound=extract_type(bound) if bound is not None else None,
+                ),
+            )
 
     node_fields = (
         FieldSchema(name=f.name, type=extract_type(hints[f.name]))
