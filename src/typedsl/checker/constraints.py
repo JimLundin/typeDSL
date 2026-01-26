@@ -88,3 +88,7 @@ class SubtypeConstraint:
         var_str = texpr_to_str(self.type_var)
         types_str = " | ".join(t.__name__ for t in self.allowed_types)
         return f"{var_str} <: {types_str} at {self.location}"
+
+
+# Type alias for any constraint type
+Constraint = EqualityConstraint | SubtypeConstraint

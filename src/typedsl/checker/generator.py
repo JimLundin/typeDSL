@@ -8,7 +8,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, TypeVar, get_args, get_origin, get_type_hints
 
-from typedsl.checker.constraints import EqualityConstraint, Location, SubtypeConstraint
+from typedsl.checker.constraints import (
+    Constraint,
+    EqualityConstraint,
+    Location,
+    SubtypeConstraint,
+)
 from typedsl.checker.types import TCon, TExpr, TVarFactory, from_hint
 from typedsl.checker.types import TVar as CheckerTVar
 from typedsl.nodes import Node, Ref
@@ -187,15 +192,16 @@ class ConstraintGenerator:
 
         return TCon(Node, (return_type,))
 
-    def _infer_list_type(
+    def _infer_single_elem_container_type(
         self,
-        value: list[Any],
+        value: Any,
         declared_hint: Any,
         path: tuple[str, ...],
         field_name: str,
+        container_type: type,
     ) -> TExpr:
-        """Infer type for a list value."""
-        elem_hint = _get_elem_hint(declared_hint, list)
+        """Infer type for single-element containers (list, set, frozenset)."""
+        elem_hint = _get_elem_hint(declared_hint, container_type)
 
         if not value:
             if elem_hint is not None:
@@ -203,14 +209,15 @@ class ConstraintGenerator:
             else:
                 elem_texpr = self.var_factory.fresh()
         else:
+            first_elem = next(iter(value))
             elem_texpr = self._infer_type(
-                value[0],
+                first_elem,
                 elem_hint,
                 path,
                 f"{field_name}[0]",
             )
 
-        return TCon(list, (elem_texpr,))
+        return TCon(container_type, (elem_texpr,))
 
     def _infer_dict_type(
         self,
@@ -273,33 +280,6 @@ class ConstraintGenerator:
             elem_texprs.append(elem_texpr)
         return TCon(tuple, tuple(elem_texprs))
 
-    def _infer_set_type(
-        self,
-        value: set[Any] | frozenset[Any],
-        declared_hint: Any,
-        path: tuple[str, ...],
-        field_name: str,
-        container_type: type,
-    ) -> TExpr:
-        """Infer type for a set or frozenset value."""
-        elem_hint = _get_elem_hint(declared_hint, container_type)
-
-        if not value:
-            if elem_hint is not None:
-                elem_texpr = from_hint(elem_hint)
-            else:
-                elem_texpr = self.var_factory.fresh()
-        else:
-            first_elem = next(iter(value))
-            elem_texpr = self._infer_type(
-                first_elem,
-                elem_hint,
-                path,
-                f"{field_name}.elem",
-            )
-
-        return TCon(container_type, (elem_texpr,))
-
     def _infer_type(
         self,
         value: Any,
@@ -317,8 +297,15 @@ class ConstraintGenerator:
         if isinstance(value, Node):
             return self._visit_node(value, node_id=None, path=(*path, field_name))
 
-        if isinstance(value, list):
-            return self._infer_list_type(value, declared_hint, path, field_name)
+        # Single-element containers: list, set, frozenset
+        if isinstance(value, (list, set, frozenset)):
+            return self._infer_single_elem_container_type(
+                value,
+                declared_hint,
+                path,
+                field_name,
+                type(value),
+            )
 
         if isinstance(value, dict):
             return self._infer_dict_type(value, declared_hint, path, field_name)
@@ -326,24 +313,10 @@ class ConstraintGenerator:
         if isinstance(value, tuple):
             return self._infer_tuple_type(value, declared_hint, path, field_name)
 
-        if isinstance(value, frozenset):
-            return self._infer_set_type(
-                value,
-                declared_hint,
-                path,
-                field_name,
-                frozenset,
-            )
-
-        if isinstance(value, set):
-            return self._infer_set_type(value, declared_hint, path, field_name, set)
-
         return TCon(type(value))
 
 
-def generate_constraints(
-    program: Program,
-) -> list[EqualityConstraint | SubtypeConstraint]:
+def generate_constraints(program: Program) -> list[Constraint]:
     """Generate type constraints for a program.
 
     Args:
@@ -354,9 +327,7 @@ def generate_constraints(
 
     """
     generator = ConstraintGenerator(program)
-    constraints: list[EqualityConstraint | SubtypeConstraint] = list(
-        generator.generate(),
-    )
+    constraints: list[Constraint] = list(generator.generate())
 
     # Convert bounds to SubtypeConstraints
     for var_id, bound_types in generator.var_factory.bounds.items():
