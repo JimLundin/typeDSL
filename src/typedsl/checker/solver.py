@@ -9,10 +9,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from typedsl.checker.constraints import Constraint, SubtypeConstraint
 from typedsl.checker.types import TCon, TExpr, TVar, texpr_to_str
 
 if TYPE_CHECKING:
-    from typedsl.checker.constraints import Constraint, Location
+    from typedsl.checker.constraints import Location
 
 
 @dataclass
@@ -247,59 +248,54 @@ class SolverResult:
     errors: list[TypeCheckError] = field(default_factory=list)
 
 
-def check_bounds(
+def check_subtype_constraint(
+    constraint: SubtypeConstraint,
     substitution: Substitution,
-    bounds: dict[int, tuple[type, ...]],
-) -> list[str]:
-    """Check that resolved types satisfy their bounds.
+) -> str | None:
+    """Check if a subtype constraint is satisfied.
 
     Args:
-        substitution: The solved substitution.
-        bounds: Mapping from TVar ID to allowed bound types.
+        constraint: The subtype constraint to check.
+        substitution: The current substitution.
 
     Returns:
-        List of error messages for bound violations.
+        An error message if the constraint is violated, None otherwise.
 
     """
-    errors: list[str] = []
+    resolved = substitution.apply(constraint.type_var)
 
-    for var_id, bound_types in bounds.items():
-        resolved = substitution.apply(TVar(var_id))
+    # If still a variable, constraint can't be checked yet
+    if isinstance(resolved, TVar):
+        return None
 
-        # If still a variable, no bound check needed
-        if isinstance(resolved, TVar):
-            continue
+    # Must be a TCon - check if it's one of the allowed types
+    if isinstance(resolved, TCon) and not resolved.args:
+        actual_type = resolved.con
+        # Check if actual_type is one of the bounds or a subtype of one
+        is_valid = any(
+            is_subtype(actual_type, bound_type)
+            for bound_type in constraint.allowed_types
+        )
+        if not is_valid:
+            bound_names = " | ".join(t.__name__ for t in constraint.allowed_types)
+            return f"Type {actual_type.__name__} does not satisfy bound {bound_names}"
 
-        # Must be a TCon - check if it's one of the allowed types
-        if isinstance(resolved, TCon) and not resolved.args:
-            actual_type = resolved.con
-            # Check if actual_type is one of the bounds or a subtype of one
-            is_valid = any(
-                is_subtype(actual_type, bound_type) for bound_type in bound_types
-            )
-            if not is_valid:
-                bound_names = " | ".join(t.__name__ for t in bound_types)
-                errors.append(
-                    f"Type {actual_type.__name__} does not satisfy bound {bound_names}",
-                )
-
-    return errors
+    return None
 
 
 def solve(
-    constraints: list[Constraint],
-    bounds: dict[int, tuple[type, ...]] | None = None,
+    constraints: list[Constraint | SubtypeConstraint],
 ) -> SolverResult:
     """Solve a list of type constraints.
 
-    Processes constraints in order, applying unification and accumulating
-    the substitution. Records errors with location information if
-    unification fails. Also checks that bounded type variables resolve
-    to types within their bounds.
+    Processes constraints in order, applying unification for equality constraints
+    and checking bounds for subtype constraints. Records errors with location
+    information when constraints are violated.
 
     Args:
-        constraints: The list of constraints to solve.
-        bounds: Optional mapping from TVar ID to allowed bound types.
+        constraints: The list of constraints to solve. Can include both
+            equality constraints (Constraint) and subtype constraints
+            (SubtypeConstraint).
 
     Returns:
         A SolverResult indicating success/failure and any errors.
@@ -307,17 +303,21 @@ def solve(
     """
     result = Substitution()
     errors: list[TypeCheckError] = []
+    subtype_constraints: list[SubtypeConstraint] = []
 
+    # First pass: process equality constraints and collect subtype constraints
     for constraint in constraints:
-        # Apply current substitution to both sides
+        if isinstance(constraint, SubtypeConstraint):
+            subtype_constraints.append(constraint)
+            continue
+
+        # Handle equality constraint
         left = result.apply(constraint.left)
         right = result.apply(constraint.right)
 
-        # Unify
         unify_result = unify(left, right)
 
         if isinstance(unify_result, str):
-            # Unification failed
             errors.append(
                 TypeCheckError(
                     message=unify_result,
@@ -327,17 +327,18 @@ def solve(
                 ),
             )
         else:
-            # Compose the new substitution
             result = result.compose(unify_result)
 
-    # Check bounds after solving
-    if bounds:
-        bound_errors = check_bounds(result, bounds)
-        default_loc = constraints[0].location if constraints else None
-        errors.extend(
-            TypeCheckError(message=msg, location=default_loc)  # type: ignore[arg-type]
-            for msg in bound_errors
-        )
+    # Second pass: check subtype constraints with final substitution
+    for constraint in subtype_constraints:
+        error_msg = check_subtype_constraint(constraint, result)
+        if error_msg:
+            errors.append(
+                TypeCheckError(
+                    message=error_msg,
+                    location=constraint.location,
+                ),
+            )
 
     return SolverResult(
         success=len(errors) == 0,

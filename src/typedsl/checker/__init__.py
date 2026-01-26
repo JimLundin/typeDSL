@@ -36,8 +36,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from typedsl.ast import Program
-from typedsl.checker.constraints import Constraint, Location
-from typedsl.checker.generator import GeneratorResult, generate_constraints
+from typedsl.checker.constraints import Constraint, Location, SubtypeConstraint
+from typedsl.checker.generator import generate_constraints
 from typedsl.checker.solver import SolverResult, Substitution, TypeCheckError, solve
 from typedsl.checker.types import (
     TCon,
@@ -67,7 +67,7 @@ class CheckResult:
     success: bool
     errors: list[TypeCheckError] = field(default_factory=list)
     substitution: Substitution = field(default_factory=Substitution)
-    constraints: list[Constraint] = field(default_factory=list)
+    constraints: list[Constraint | SubtypeConstraint] = field(default_factory=list)
 
     def __str__(self) -> str:
         if self.success:
@@ -90,17 +90,17 @@ def check_program(program: Program) -> CheckResult:
         A CheckResult indicating success or failure with error details.
 
     """
-    # Step 1: Generate constraints
-    gen_result = generate_constraints(program)
+    # Step 1: Generate constraints (includes both equality and subtype constraints)
+    constraints = generate_constraints(program)
 
-    # Step 2: Solve constraints with bounds checking
-    solver_result = solve(gen_result.constraints, gen_result.bounds)
+    # Step 2: Solve constraints
+    solver_result = solve(constraints)
 
     return CheckResult(
         success=solver_result.success,
         errors=solver_result.errors,
         substitution=solver_result.substitution,
-        constraints=gen_result.constraints,
+        constraints=constraints,
     )
 
 
@@ -125,12 +125,11 @@ __all__ = [
     "CheckResult",
     # Constraints (for advanced use)
     "Constraint",
-    # Generator (for advanced use)
-    "GeneratorResult",
     "Location",
     # Solver (for advanced use)
     "SolverResult",
     "Substitution",
+    "SubtypeConstraint",
     # Type expressions (for advanced use)
     "TCon",
     "TExpr",

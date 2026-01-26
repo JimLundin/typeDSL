@@ -64,3 +64,27 @@ class Constraint:
         left_str = texpr_to_str(self.left)
         right_str = texpr_to_str(self.right)
         return f"{left_str} = {right_str} at {self.location}"
+
+
+@dataclass(frozen=True)
+class SubtypeConstraint:
+    """A subtype constraint for bounded type variables.
+
+    Represents the requirement that a type must be one of several allowed types.
+    Used for PEP 695 bounded generics like `T: int | float`.
+
+    Attributes:
+        type_var: The type variable that must satisfy the bound.
+        allowed_types: The concrete types that satisfy the bound.
+        location: Where this constraint originated for error reporting.
+
+    """
+
+    type_var: TExpr
+    allowed_types: tuple[type, ...]
+    location: Location
+
+    def __str__(self) -> str:
+        var_str = texpr_to_str(self.type_var)
+        types_str = " | ".join(t.__name__ for t in self.allowed_types)
+        return f"{var_str} <: {types_str} at {self.location}"

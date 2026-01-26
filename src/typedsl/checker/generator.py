@@ -6,11 +6,11 @@ by comparing declared field types against actual values.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeVar, get_args, get_origin, get_type_hints
 
-from typedsl.checker.constraints import Constraint, Location
-from typedsl.checker.types import TCon, TExpr, TVar, TVarFactory, from_hint
+from typedsl.checker.constraints import Constraint, Location, SubtypeConstraint
+from typedsl.checker.types import TCon, TExpr, TVarFactory, from_hint
+from typedsl.checker.types import TVar as CheckerTVar
 from typedsl.nodes import Node, Ref
 
 if TYPE_CHECKING:
@@ -129,7 +129,7 @@ class ConstraintGenerator:
         node_tag = node_class.tag
 
         # Create a fresh TypeVar -> TVar mapping for this node
-        typevar_map: dict[TypeVar, TVar] = {}
+        typevar_map: dict[TypeVar, CheckerTVar] = {}
 
         try:
             hints = get_type_hints(node_class)
@@ -333,33 +333,34 @@ class ConstraintGenerator:
         return TCon(type(value))
 
 
-@dataclass
-class GeneratorResult:
-    """Result of constraint generation.
-
-    Attributes:
-        constraints: The generated type constraints.
-        bounds: Mapping from TVar ID to allowed bound types.
-
-    """
-
-    constraints: list[Constraint]
-    bounds: dict[int, tuple[type, ...]]
-
-
-def generate_constraints(program: Program) -> GeneratorResult:
+def generate_constraints(program: Program) -> list[Constraint | SubtypeConstraint]:
     """Generate type constraints for a program.
 
     Args:
         program: The program to generate constraints for.
 
     Returns:
-        A GeneratorResult with constraints and bounds.
+        A list of constraints (both equality and subtype constraints).
 
     """
     generator = ConstraintGenerator(program)
-    constraints = generator.generate()
-    return GeneratorResult(
-        constraints=constraints,
-        bounds=generator.var_factory.bounds,
-    )
+    constraints: list[Constraint | SubtypeConstraint] = list(generator.generate())
+
+    # Convert bounds to SubtypeConstraints
+    for var_id, bound_types in generator.var_factory.bounds.items():
+        # Use a generic location for bound constraints
+        location = Location(
+            node_tag="<bound>",
+            node_id=None,
+            field_name=None,
+            path=(),
+        )
+        constraints.append(
+            SubtypeConstraint(
+                type_var=CheckerTVar(var_id),
+                allowed_types=bound_types,
+                location=location,
+            ),
+        )
+
+    return constraints
