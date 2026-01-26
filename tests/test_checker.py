@@ -3,7 +3,7 @@
 from typedsl import Node, Program, Ref
 from typedsl.checker import (
     CheckResult,
-    Constraint,
+    EqualityConstraint,
     Location,
     Substitution,
     TCon,
@@ -137,7 +137,7 @@ class TestSolver:
         assert result.success
 
     def test_satisfiable_constraints_succeed(self) -> None:
-        constraint = Constraint(
+        constraint = EqualityConstraint(
             left=TCon(int),
             right=TCon(int),
             location=Location(
@@ -151,7 +151,7 @@ class TestSolver:
         assert result.success
 
     def test_unsatisfiable_constraints_fail_with_error(self) -> None:
-        constraint = Constraint(
+        constraint = EqualityConstraint(
             left=TCon(int),
             right=TCon(str),
             location=Location(
@@ -323,7 +323,7 @@ class TestCheckProgram:
         assert isinstance(result.constraints, list)
 
     def test_failed_check_reports_error_location(self) -> None:
-        constraint = Constraint(
+        constraint = EqualityConstraint(
             left=TCon(int),
             right=TCon(str),
             location=Location(

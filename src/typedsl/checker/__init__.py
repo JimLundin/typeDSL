@@ -36,7 +36,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from typedsl.ast import Program
-from typedsl.checker.constraints import Constraint, Location, SubtypeConstraint
+from typedsl.checker.constraints import EqualityConstraint, Location, SubtypeConstraint
 from typedsl.checker.generator import generate_constraints
 from typedsl.checker.solver import SolverResult, Substitution, TypeCheckError, solve
 from typedsl.checker.types import (
@@ -67,7 +67,9 @@ class CheckResult:
     success: bool
     errors: list[TypeCheckError] = field(default_factory=list)
     substitution: Substitution = field(default_factory=Substitution)
-    constraints: list[Constraint | SubtypeConstraint] = field(default_factory=list)
+    constraints: list[EqualityConstraint | SubtypeConstraint] = field(
+        default_factory=list,
+    )
 
     def __str__(self) -> str:
         if self.success:
@@ -124,7 +126,7 @@ def check_node(node: Node[Any]) -> CheckResult:
 __all__ = [
     "CheckResult",
     # Constraints (for advanced use)
-    "Constraint",
+    "EqualityConstraint",
     "Location",
     # Solver (for advanced use)
     "SolverResult",

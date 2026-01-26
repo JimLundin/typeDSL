@@ -44,7 +44,7 @@ class Location:
 
 
 @dataclass(frozen=True)
-class Constraint:
+class EqualityConstraint:
     """A type equality constraint.
 
     Represents the requirement that two type expressions must unify.

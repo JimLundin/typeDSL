@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, TypeVar, get_args, get_origin, get_type_hints
 
-from typedsl.checker.constraints import Constraint, Location, SubtypeConstraint
+from typedsl.checker.constraints import EqualityConstraint, Location, SubtypeConstraint
 from typedsl.checker.types import TCon, TExpr, TVarFactory, from_hint
 from typedsl.checker.types import TVar as CheckerTVar
 from typedsl.nodes import Node, Ref
@@ -58,11 +58,11 @@ class ConstraintGenerator:
     def __init__(self, program: Program) -> None:
         self.program = program
         self.var_factory = TVarFactory()
-        self.constraints: list[Constraint] = []
+        self.constraints: list[EqualityConstraint] = []
         self._node_return_types: dict[str, TExpr] = {}
         self._visited: set[int] = set()
 
-    def generate(self) -> list[Constraint]:
+    def generate(self) -> list[EqualityConstraint]:
         """Generate all constraints for the program.
 
         Returns:
@@ -154,7 +154,11 @@ class ConstraintGenerator:
             actual_texpr = self._infer_type(value, declared_type, path, field_name)
 
             self.constraints.append(
-                Constraint(left=declared_texpr, right=actual_texpr, location=location),
+                EqualityConstraint(
+                    left=declared_texpr,
+                    right=actual_texpr,
+                    location=location,
+                ),
             )
 
         # Get return type using the same TypeVar mapping
@@ -174,7 +178,11 @@ class ConstraintGenerator:
                 path=path,
             )
             self.constraints.append(
-                Constraint(left=pre_allocated, right=return_type, location=location),
+                EqualityConstraint(
+                    left=pre_allocated,
+                    right=return_type,
+                    location=location,
+                ),
             )
 
         return TCon(Node, (return_type,))
@@ -333,7 +341,9 @@ class ConstraintGenerator:
         return TCon(type(value))
 
 
-def generate_constraints(program: Program) -> list[Constraint | SubtypeConstraint]:
+def generate_constraints(
+    program: Program,
+) -> list[EqualityConstraint | SubtypeConstraint]:
     """Generate type constraints for a program.
 
     Args:
@@ -344,7 +354,9 @@ def generate_constraints(program: Program) -> list[Constraint | SubtypeConstrain
 
     """
     generator = ConstraintGenerator(program)
-    constraints: list[Constraint | SubtypeConstraint] = list(generator.generate())
+    constraints: list[EqualityConstraint | SubtypeConstraint] = list(
+        generator.generate(),
+    )
 
     # Convert bounds to SubtypeConstraints
     for var_id, bound_types in generator.var_factory.bounds.items():

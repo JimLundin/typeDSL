@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from typedsl.checker.constraints import Constraint, SubtypeConstraint
+from typedsl.checker.constraints import EqualityConstraint, SubtypeConstraint
 from typedsl.checker.types import TCon, TExpr, TVar, texpr_to_str
 
 if TYPE_CHECKING:
@@ -284,7 +284,7 @@ def check_subtype_constraint(
 
 
 def solve(
-    constraints: list[Constraint | SubtypeConstraint],
+    constraints: list[EqualityConstraint | SubtypeConstraint],
 ) -> SolverResult:
     """Solve a list of type constraints.
 
@@ -294,7 +294,7 @@ def solve(
 
     Args:
         constraints: The list of constraints to solve. Can include both
-            equality constraints (Constraint) and subtype constraints
+            equality constraints (EqualityConstraint) and subtype constraints
             (SubtypeConstraint).
 
     Returns:
