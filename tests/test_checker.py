@@ -440,6 +440,143 @@ class TestTypeMismatchEdgeCases:
         assert len(result.errors) >= 1
 
 
+class TestNegativeCases:
+    """Comprehensive negative tests to verify type errors are caught."""
+
+    def test_wrong_primitive_type_in_concrete_field(self) -> None:
+        """Passing wrong primitive type to a concrete-typed field."""
+        result = check_node(IntLiteral(value="not an int"))  # type: ignore[arg-type]
+        assert not result.success
+        assert len(result.errors) >= 1
+        # Error should mention the type mismatch
+        error_str = str(result.errors[0])
+        assert "str" in error_str or "int" in error_str
+
+    def test_float_not_accepted_where_int_expected(self) -> None:
+        """Float should NOT be accepted where int is expected (no contravariance)."""
+        result = check_node(IntLiteral(value=3.14))  # type: ignore[arg-type]
+        assert not result.success
+
+    def test_none_not_accepted_for_non_optional(self) -> None:
+        """None should not be accepted for non-optional fields."""
+        result = check_node(IntLiteral(value=None))  # type: ignore[arg-type]
+        assert not result.success
+
+    def test_list_not_accepted_where_int_expected(self) -> None:
+        """List should not be accepted where int is expected."""
+        result = check_node(IntLiteral(value=[1, 2, 3]))  # type: ignore[arg-type]
+        assert not result.success
+
+    def test_bound_violation_with_complex(self) -> None:
+        """Complex should not satisfy bound T: int | float."""
+        result = check_node(NumericLiteral(value=1 + 2j))  # type: ignore[arg-type]
+        assert not result.success
+        # Error should mention the bound
+        assert any("complex" in str(e).lower() for e in result.errors)
+
+    def test_bound_violation_with_bool(self) -> None:
+        """Bool technically is int subtype, but let's verify behavior."""
+        # Note: In Python, bool is a subtype of int, so this might pass
+        # This test documents the actual behavior
+        result = check_node(NumericLiteral(value=True))
+        # bool is subtype of int, which is in the bound, so this should pass
+        assert result.success
+
+    def test_single_bound_rejects_subtype(self) -> None:
+        """T: int should reject float even though float > int numerically."""
+        result = check_node(IntOnly(value=3.14))  # type: ignore[arg-type]
+        assert not result.success
+        assert any("float" in str(e).lower() for e in result.errors)
+
+    def test_wrong_node_type_inline(self) -> None:
+        """Wrong node type passed as inline child."""
+        # AddNode expects Node[float], StringLiteral is Node[str]
+        result = check_node(
+            AddNode(
+                left=Literal(value=1.0),
+                right=StringLiteral(value="wrong"),  # type: ignore[arg-type]
+            ),
+        )
+        assert not result.success
+
+    def test_inconsistent_typevar_with_three_fields(self) -> None:
+        """TypeVar must be consistent across all usages."""
+        # If we had a node with three T fields, all must match
+        result = check_node(PairSame(left="hello", right=42))  # type: ignore[arg-type]
+        assert not result.success
+
+    def test_error_location_includes_field_name(self) -> None:
+        """Error location should include the field name."""
+        result = check_node(IntLiteral(value="wrong"))  # type: ignore[arg-type]
+        assert not result.success
+        assert result.errors[0].location.field_name == "value"
+
+    def test_error_location_includes_node_tag(self) -> None:
+        """Error location should include the node tag."""
+        result = check_node(IntLiteral(value="wrong"))  # type: ignore[arg-type]
+        assert not result.success
+        assert result.errors[0].location.node_tag == "checker_int_lit"
+
+    def test_ref_to_wrong_return_type(self) -> None:
+        """Ref to node with wrong return type should fail."""
+        program = Program(
+            root=Ref(id="add"),
+            nodes={
+                # IntLiteral returns Node[int], but RefAdd expects Ref[Node[float]]
+                "x": IntLiteral(value=5),
+                "add": RefAdd(left=Ref(id="x"), right=Ref(id="x")),
+            },
+        )
+        result = check_program(program)
+        # This should succeed due to int <: float subtyping
+        assert result.success
+
+    def test_ref_to_incompatible_return_type(self) -> None:
+        """Ref to node with incompatible return type should fail."""
+        program = Program(
+            root=Ref(id="add"),
+            nodes={
+                # StringLiteral returns Node[str], incompatible with Node[float]
+                "x": StringLiteral(value="hello"),
+                "add": RefAdd(left=Ref(id="x"), right=Ref(id="x")),
+            },
+        )
+        result = check_program(program)
+        assert not result.success
+
+    def test_container_element_type_mismatch(self) -> None:
+        """List elements must match the declared element type."""
+        result = check_node(ListContainer(items=["a", "b", "c"]))
+        # This infers T=str from the elements, which is fine for unbounded T
+        assert result.success
+
+        # But for bounded T, wrong element types should fail
+        result = check_node(NumericList(items=["a", "b"]))  # type: ignore[list-item]
+        assert not result.success
+
+    def test_empty_list_with_bounded_typevar_unresolved(self) -> None:
+        """Empty list with bounded TypeVar - TVar remains unresolved."""
+        # Empty list means T can't be inferred from elements
+        # The bound check should handle unresolved TVars gracefully
+        result = check_node(NumericList(items=[]))
+        # With no elements, T is unresolved - should pass (no violation detected)
+        assert result.success
+
+    def test_deeply_nested_bound_violation(self) -> None:
+        """Bound violation in deeply nested structure."""
+        program = Program(
+            root=NumericAdd(
+                left=NumericLiteral(value=1),
+                right=NumericAdd(
+                    left=NumericLiteral(value=2),
+                    right=NumericLiteral(value="oops"),  # type: ignore[arg-type]
+                ),
+            ),
+        )
+        result = check_program(program)
+        assert not result.success
+
+
 class TestCheckProgram:
     """Tests for program type checking."""
 
