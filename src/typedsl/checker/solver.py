@@ -275,23 +275,18 @@ def check_subtype_constraint(
     """
     resolved = substitution.apply(constraint.type_var)
 
-    # If still a variable, constraint can't be checked yet
-    if isinstance(resolved, TVar):
-        return None
-
-    # Must be a TCon - check if it's one of the allowed types
-    if isinstance(resolved, TCon) and not resolved.args:
-        actual_type = resolved.con
-        # Check if actual_type is one of the bounds or a subtype of one
-        is_valid = any(
-            is_subtype(actual_type, bound_type)
-            for bound_type in constraint.allowed_types
-        )
-        if not is_valid:
-            bound_names = " | ".join(t.__name__ for t in constraint.allowed_types)
+    match resolved:
+        case TVar():
+            return None  # Can't check yet - still unresolved
+        case TCon(con=actual_type, args=()):
+            # Simple type with no args - check against bounds
+            allowed = constraint.allowed_types
+            if any(is_subtype(actual_type, bound) for bound in allowed):
+                return None
+            bound_names = " | ".join(t.__name__ for t in allowed)
             return f"Type {actual_type.__name__} does not satisfy bound {bound_names}"
-
-    return None
+        case _:
+            return None  # Complex type with args - skip bound check
 
 
 def solve(constraints: list[Constraint]) -> SolverResult:

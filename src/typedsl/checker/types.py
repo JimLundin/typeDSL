@@ -79,19 +79,15 @@ def get_typevar_bound_types(tv: TypeVar) -> tuple[type, ...] | None:
     For `T: int | float`, returns (int, float).
     For unbounded TypeVars, returns None.
     """
-    bound = getattr(tv, "__bound__", None)
-    if bound is None:
-        return None
-
-    # Handle union bounds (int | float)
-    if isinstance(bound, types.UnionType):
-        return get_args(bound)
-
-    # Handle single type bound
-    if isinstance(bound, type):
-        return (bound,)
-
-    return None
+    match getattr(tv, "__bound__", None):
+        case None:
+            return None
+        case types.UnionType() as bound:
+            return get_args(bound)
+        case type() as bound:
+            return (bound,)
+        case _:
+            return None
 
 
 def from_hint(

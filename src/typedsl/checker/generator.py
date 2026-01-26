@@ -46,11 +46,10 @@ def get_node_return_type(node_class: type[Node[Any]]) -> Any | None:
 
 def _get_elem_hint(declared_hint: Any, container_type: type) -> Any | None:
     """Extract element hint from a container type hint."""
-    origin = get_origin(declared_hint)
-    if origin is container_type:
-        declared_args = get_args(declared_hint)
-        return declared_args[0] if declared_args else None
-    return None
+    if get_origin(declared_hint) is not container_type:
+        return None
+    args = get_args(declared_hint)
+    return args[0] if args else None
 
 
 class ConstraintGenerator:
@@ -94,17 +93,11 @@ class ConstraintGenerator:
         that will be unified when the node is visited.
         """
         for node_id, node in self.program.nodes.items():
-            return_type_hint = get_node_return_type(type(node))
-            # Check if the return type involves a TypeVar
-            is_concrete = return_type_hint is not None and not isinstance(
-                return_type_hint,
-                TypeVar,
+            hint = get_node_return_type(type(node))
+            is_concrete = hint is not None and not isinstance(hint, TypeVar)
+            self._node_return_types[node_id] = (
+                from_hint(hint) if is_concrete else self.var_factory.fresh()
             )
-            if is_concrete:
-                self._node_return_types[node_id] = from_hint(return_type_hint)
-            else:
-                # TypeVar or unknown - allocate a fresh TVar
-                self._node_return_types[node_id] = self.var_factory.fresh()
 
     def _visit_ref(self, ref: Ref[Any], path: tuple[str, ...]) -> TExpr:
         """Visit a reference and return its type."""
@@ -203,19 +196,15 @@ class ConstraintGenerator:
         """Infer type for single-element containers (list, set, frozenset)."""
         elem_hint = _get_elem_hint(declared_hint, container_type)
 
-        if not value:
-            if elem_hint is not None:
-                elem_texpr = from_hint(elem_hint)
-            else:
-                elem_texpr = self.var_factory.fresh()
-        else:
-            first_elem = next(iter(value))
+        if value:
             elem_texpr = self._infer_type(
-                first_elem,
+                next(iter(value)),
                 elem_hint,
                 path,
                 f"{field_name}[0]",
             )
+        else:
+            elem_texpr = from_hint(elem_hint) if elem_hint else self.var_factory.fresh()
 
         return TCon(container_type, (elem_texpr,))
 
@@ -227,22 +216,18 @@ class ConstraintGenerator:
         field_name: str,
     ) -> TExpr:
         """Infer type for a dict value."""
-        origin = get_origin(declared_hint)
-        if origin is dict:
-            declared_args = get_args(declared_hint)
-            key_hint = declared_args[0] if len(declared_args) > 0 else None
-            val_hint = declared_args[1] if len(declared_args) > 1 else None
-        else:
-            key_hint = None
-            val_hint = None
+        # Extract key/value hints if declared_hint is dict[K, V]
+        args = get_args(declared_hint) if get_origin(declared_hint) is dict else ()
+        key_hint = args[0] if len(args) > 0 else None
+        val_hint = args[1] if len(args) > 1 else None
 
-        if not value:
-            key_texpr = from_hint(key_hint) if key_hint else self.var_factory.fresh()
-            val_texpr = from_hint(val_hint) if val_hint else self.var_factory.fresh()
-        else:
+        if value:
             first_key, first_val = next(iter(value.items()))
             key_texpr = self._infer_type(first_key, key_hint, path, f"{field_name}.key")
             val_texpr = self._infer_type(first_val, val_hint, path, f"{field_name}.val")
+        else:
+            key_texpr = from_hint(key_hint) if key_hint else self.var_factory.fresh()
+            val_texpr = from_hint(val_hint) if val_hint else self.var_factory.fresh()
 
         return TCon(dict, (key_texpr, val_texpr))
 
