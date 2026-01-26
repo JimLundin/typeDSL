@@ -199,6 +199,51 @@ class NumericAdd[T: int | float](Node[T], tag="checker_numeric_add"):
     right: Node[T]
 
 
+# Edge case test nodes
+class IntOnly[T: int](Node[T], tag="checker_int_only"):
+    """Node with single-type bound (not a union)."""
+
+    value: T
+
+
+class FloatBounded[T: float](Node[T], tag="checker_float_bounded"):
+    """Node bounded by float - should accept int via subtyping."""
+
+    value: T
+
+
+class PairSame[T](Node[tuple[T, T]], tag="checker_pair_same"):
+    """Node using same TypeVar in multiple fields."""
+
+    left: T
+    right: T
+
+
+class PairDifferent[T, U](Node[tuple[T, U]], tag="checker_pair_diff"):
+    """Node with multiple type parameters."""
+
+    left: T
+    right: U
+
+
+class ListContainer[T](Node[list[T]], tag="checker_list_container"):
+    """Node with TypeVar in container."""
+
+    items: list[T]
+
+
+class NumericList[T: int | float](Node[list[T]], tag="checker_numeric_list"):
+    """Node with bounded TypeVar in container."""
+
+    items: list[T]
+
+
+class StringLiteral(Node[str], tag="checker_string_lit"):
+    """String literal node for type mismatch tests."""
+
+    value: str
+
+
 class TestGenericNodes:
     """Tests for generic node type checking."""
 
@@ -295,6 +340,104 @@ class TestBoundedTypeVars:
         )
         result = check_program(program)
         assert result.success
+
+
+class TestBoundedTypeVarsEdgeCases:
+    """Edge case tests for bounded type variables."""
+
+    def test_single_type_bound(self) -> None:
+        """A bound with a single type (not union) should work."""
+        # IntOnly[T: int] only accepts int
+        result = check_node(IntOnly(value=42))
+        assert result.success
+
+    def test_single_type_bound_rejects_other_types(self) -> None:
+        """Single type bound should reject other types."""
+        result = check_node(IntOnly(value=3.14))  # type: ignore[arg-type]
+        assert not result.success
+
+    def test_bound_with_numeric_subtyping(self) -> None:
+        """T: float should accept int because int <: float."""
+        result = check_node(FloatBounded(value=42))  # int value
+        assert result.success
+
+    def test_same_typevar_must_be_consistent(self) -> None:
+        """Same TypeVar in multiple fields must resolve to same type."""
+        # PairSame[T] has left: T and right: T
+        result = check_node(PairSame(left=1, right=2))  # both int - OK
+        assert result.success
+
+    def test_same_typevar_inconsistent_fails(self) -> None:
+        """Inconsistent types for same TypeVar should fail."""
+        result = check_node(PairSame(left=1, right="hello"))  # type: ignore[arg-type]
+        assert not result.success
+
+    def test_multiple_type_parameters(self) -> None:
+        """Node with multiple type parameters should work."""
+        result = check_node(PairDifferent(left=42, right="hello"))
+        assert result.success
+
+    def test_typevar_in_container(self) -> None:
+        """TypeVar used in container field should work."""
+        result = check_node(ListContainer(items=[1, 2, 3]))
+        assert result.success
+
+    def test_bounded_typevar_in_container(self) -> None:
+        """Bounded TypeVar in container should enforce bound."""
+        result = check_node(NumericList(items=[1, 2, 3]))
+        assert result.success
+
+    def test_bounded_typevar_in_container_rejects_invalid(self) -> None:
+        """Bounded TypeVar in container should reject invalid types."""
+        result = check_node(NumericList(items=["a", "b"]))  # type: ignore[list-item]
+        assert not result.success
+
+
+class TestTypeMismatchEdgeCases:
+    """Edge cases for type mismatches."""
+
+    def test_type_mismatch_via_ref(self) -> None:
+        """Type mismatch detected through Ref connections."""
+        # StringLiteral returns Node[str], but RefAdd expects Node[float]
+        program = Program(
+            root=Ref(id="add"),
+            nodes={
+                "s": StringLiteral(value="hello"),
+                "add": RefAdd(left=Ref(id="s"), right=Ref(id="s")),
+            },
+        )
+        result = check_program(program)
+        assert not result.success
+
+    def test_nested_type_error(self) -> None:
+        """Type error in deeply nested inline node."""
+        # Inner node has type mismatch
+        program = Program(
+            root=AddNode(
+                left=Literal(value=1.0),
+                right=AddNode(
+                    left=Literal(value=2.0),
+                    right=StringLiteral(value="oops"),  # type: ignore[arg-type]
+                ),
+            ),
+        )
+        result = check_program(program)
+        assert not result.success
+
+    def test_multiple_errors_reported(self) -> None:
+        """Multiple type errors should all be reported."""
+        program = Program(
+            root=Ref(id="add"),
+            nodes={
+                "s1": StringLiteral(value="a"),
+                "s2": StringLiteral(value="b"),
+                "add": RefAdd(left=Ref(id="s1"), right=Ref(id="s2")),
+            },
+        )
+        result = check_program(program)
+        assert not result.success
+        # Both left and right refs have type errors
+        assert len(result.errors) >= 1
 
 
 class TestCheckProgram:
