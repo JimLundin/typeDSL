@@ -142,27 +142,10 @@ def occurs_in(var: TVar, texpr: TExpr) -> bool:
             return any(occurs_in(var, arg) for arg in args)
 
 
-# Numeric type hierarchy for subtype checking: int <: float <: complex
-NUMERIC_SUBTYPES: dict[type, set[type]] = {
-    int: {int, float, complex},
-    float: {float, complex},
-    complex: {complex},
-}
-
-
 def is_subtype(sub: type, sup: type) -> bool:
-    """Check if sub is a subtype of sup.
-
-    Handles:
-    - Numeric tower: int <: float <: complex
-    - Python class hierarchy (e.g., bool <: int)
-    """
+    """Check if sub is a subtype of sup using Python's class hierarchy."""
     if sub == sup:
         return True
-    # Check numeric tower first
-    if sub in NUMERIC_SUBTYPES:
-        return sup in NUMERIC_SUBTYPES[sub]
-    # Fall back to Python's class hierarchy
     try:
         return issubclass(sub, sup)
     except TypeError:

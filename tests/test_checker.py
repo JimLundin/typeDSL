@@ -63,23 +63,31 @@ class TestSubstitution:
         assert composed.apply(TVar(1)) == TCon(int)
 
 
-class TestNumericSubtyping:
-    """Tests for numeric type hierarchy."""
+class TestSubtyping:
+    """Tests for Python class hierarchy subtyping."""
 
-    def test_int_is_subtype_of_float(self) -> None:
-        assert is_subtype(int, float)
+    def test_bool_is_subtype_of_int(self) -> None:
+        # bool is a subclass of int in Python
+        assert is_subtype(bool, int)
 
-    def test_int_is_subtype_of_complex(self) -> None:
-        assert is_subtype(int, complex)
+    def test_int_is_not_subtype_of_float(self) -> None:
+        # int is NOT a subclass of float - no custom numeric tower
+        assert not is_subtype(int, float)
 
-    def test_float_is_subtype_of_complex(self) -> None:
-        assert is_subtype(float, complex)
+    def test_float_is_not_subtype_of_complex(self) -> None:
+        # float is NOT a subclass of complex
+        assert not is_subtype(float, complex)
 
     def test_float_is_not_subtype_of_int(self) -> None:
         assert not is_subtype(float, int)
 
     def test_str_is_not_subtype_of_int(self) -> None:
         assert not is_subtype(str, int)
+
+    def test_same_type_is_subtype(self) -> None:
+        assert is_subtype(int, int)
+        assert is_subtype(float, float)
+        assert is_subtype(str, str)
 
 
 class TestUnify:
@@ -118,15 +126,20 @@ class TestUnify:
         assert isinstance(result, str)
         assert "infinite" in result.lower()
 
-    def test_int_unifies_with_float_expected(self) -> None:
-        # When float is expected, int is acceptable
+    def test_int_does_not_unify_with_float(self) -> None:
+        # int and float are different types - no implicit conversion
         result = unify(TCon(float), TCon(int))
-        assert isinstance(result, Substitution)
+        assert isinstance(result, str)
 
-    def test_float_does_not_unify_with_int_expected(self) -> None:
-        # When int is expected, float is not acceptable
+    def test_float_does_not_unify_with_int(self) -> None:
+        # float and int are different types
         result = unify(TCon(int), TCon(float))
         assert isinstance(result, str)
+
+    def test_bool_unifies_with_int_expected(self) -> None:
+        # bool is a subtype of int (Python class hierarchy)
+        result = unify(TCon(int), TCon(bool))
+        assert isinstance(result, Substitution)
 
 
 class TestSolver:
@@ -261,12 +274,12 @@ class TestGenericNodes:
         assert result.success
 
 
-class TestNumericSubtypingInPrograms:
-    """Tests for numeric subtyping in real programs."""
+class TestTypeMismatchInPrograms:
+    """Tests for type mismatches - int and float are distinct types."""
 
-    def test_int_literal_in_float_context(self) -> None:
+    def test_int_literal_in_float_context_fails(self) -> None:
         # AddNode expects Node[float], Literal(value=5) is Node[int]
-        # int <: float, so this should pass
+        # int is NOT a subtype of float, so this should fail
         program = Program(
             root=AddNode(
                 left=Literal(value=5),
@@ -274,9 +287,11 @@ class TestNumericSubtypingInPrograms:
             ),
         )
         result = check_program(program)
-        assert result.success, f"Expected success: {result}"
+        assert not result.success
+        assert any("int" in e.message and "float" in e.message for e in result.errors)
 
-    def test_both_int_literals_in_float_context(self) -> None:
+    def test_both_int_literals_in_float_context_fails(self) -> None:
+        # Both operands are int, but AddNode expects float
         program = Program(
             root=AddNode(
                 left=Literal(value=1),
@@ -284,9 +299,9 @@ class TestNumericSubtypingInPrograms:
             ),
         )
         result = check_program(program)
-        assert result.success
+        assert not result.success
 
-    def test_int_ref_in_float_context(self) -> None:
+    def test_int_ref_in_float_context_fails(self) -> None:
         # Graph with IntLiteral nodes referenced where Node[float] expected
         program = Program(
             root=Ref(id="add"),
@@ -295,6 +310,17 @@ class TestNumericSubtypingInPrograms:
                 "y": IntLiteral(value=10),
                 "add": RefAdd(left=Ref(id="x"), right=Ref(id="y")),
             },
+        )
+        result = check_program(program)
+        assert not result.success
+
+    def test_float_literals_in_float_context_succeeds(self) -> None:
+        # Both operands are float, matching AddNode's expectation
+        program = Program(
+            root=AddNode(
+                left=Literal(value=1.0),
+                right=Literal(value=2.0),
+            ),
         )
         result = check_program(program)
         assert result.success
@@ -356,9 +382,15 @@ class TestBoundedTypeVarsEdgeCases:
         result = check_node(IntOnly(value=3.14))  # type: ignore[arg-type]
         assert not result.success
 
-    def test_bound_with_numeric_subtyping(self) -> None:
-        """T: float should accept int because int <: float."""
+    def test_bound_rejects_non_subtype(self) -> None:
+        """T: float should reject int because int is not a subclass of float."""
         result = check_node(FloatBounded(value=42))  # int value
+        assert not result.success
+        assert any("int" in e.message and "float" in e.message for e in result.errors)
+
+    def test_bound_accepts_subtype(self) -> None:
+        """T: int should accept bool because bool is a subclass of int."""
+        result = check_node(IntOnly(value=True))  # bool value
         assert result.success
 
     def test_same_typevar_must_be_consistent(self) -> None:
@@ -528,8 +560,8 @@ class TestNegativeCases:
             },
         )
         result = check_program(program)
-        # This should succeed due to int <: float subtyping
-        assert result.success
+        # int is NOT a subtype of float, so this should fail
+        assert not result.success
 
     def test_ref_to_incompatible_return_type(self) -> None:
         """Ref to node with incompatible return type should fail."""
