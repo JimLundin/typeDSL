@@ -31,7 +31,7 @@ class Location:
     path: tuple[str, ...]
 
     def __str__(self) -> str:
-        parts = []
+        parts: list[str] = []
         if self.path:
             parts.append("/".join(self.path))
         if self.node_id:
