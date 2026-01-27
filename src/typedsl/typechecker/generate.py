@@ -98,31 +98,33 @@ class ConstraintGenerator:
         self._program = program
         _node_type, ref_type = _get_node_ref_types()
 
+        nodes_loc = Location("nodes")
+
         # Process all named nodes and cache their return types
         for node_id, node in program.nodes.items():
-            return_type = self._generate_node(node, f"nodes[{node_id!r}]")
+            node_loc = nodes_loc.index(node_id)
+            return_type = self._generate_node(node, node_loc)
             self._node_return_types[node_id] = return_type
 
         # Process root
+        root_loc = Location("root")
         if isinstance(program.root, ref_type):
             # Root is a reference - ensure it points to a valid node
             ref_id = program.root.id
             if ref_id not in program.nodes:
-                # Invalid ref - this is a structural error, not a type error
-                # But we could add a constraint that will fail
-                loc = Location("root ref target")
-                self.add(EqConstraint(Bottom(), Top(), loc))
+                # Invalid ref - generate failing constraint
+                self.add(EqConstraint(Bottom(), Top(), root_loc))
         else:
-            self._generate_node(program.root, "root")
+            self._generate_node(program.root, root_loc)
 
         return self.get_constraints()
 
-    def _generate_node(self, node: Node[Any], path: str) -> Type:
+    def _generate_node(self, node: Node[Any], loc: Location) -> Type:
         """Generate constraints for a single node and return its inferred type.
 
         Args:
             node: The node to process.
-            path: Path for error reporting (e.g., "root.left").
+            loc: Location for error reporting.
 
         Returns:
             The inferred type of this node.
@@ -143,7 +145,7 @@ class ConstraintGenerator:
             if f.name.startswith("_"):
                 continue
 
-            field_path = f"{path}.{f.name}"
+            field_loc = loc.child(f.name)
             field_value = getattr(node, f.name)
             declared_type = hints.get(f.name)
 
@@ -151,13 +153,11 @@ class ConstraintGenerator:
                 continue
 
             # Generate appropriate constraints based on the field type
-            loc = Location(field_path)
             self._generate_field_constraint(
                 field_value,
                 declared_type,
-                field_path,
                 type_param_map,
-                loc,
+                field_loc,
             )
 
         # Return the node's return type (for use by parent nodes)
@@ -167,7 +167,6 @@ class ConstraintGenerator:
         self,
         value: Any,
         declared_type: Any,
-        path: str,
         type_param_map: dict[str, TypeVar],
         loc: Location,
     ) -> None:
@@ -191,7 +190,7 @@ class ConstraintGenerator:
         if is_node_field and isinstance(value, node_type):
             # Field expects a node, value is a node
             # Generate constraints for the nested node first
-            actual_return_type = self._generate_node(value, path)
+            actual_return_type = self._generate_node(value, loc)
 
             # Extract expected return type from Node[T] annotation
             if args:
@@ -227,10 +226,8 @@ class ConstraintGenerator:
             elif self._program is not None and ref_id in self._program.nodes:
                 # Not yet processed - process it now and cache
                 resolved_node = self._program.nodes[ref_id]
-                actual_return_type = self._generate_node(
-                    resolved_node,
-                    f"nodes[{ref_id!r}]",
-                )
+                ref_loc = Location("nodes").index(ref_id)
+                actual_return_type = self._generate_node(resolved_node, ref_loc)
                 self._node_return_types[ref_id] = actual_return_type
             else:
                 # Invalid ref - generate failing constraint
@@ -267,7 +264,7 @@ class ConstraintGenerator:
             actual_type = self._infer_value_type(
                 value,
                 expected_type,
-                path,
+                loc,
                 type_param_map,
             )
             self.add(SubConstraint(actual_type, expected_type, loc))
@@ -353,7 +350,7 @@ class ConstraintGenerator:
         self,
         value: Any,
         expected: Type,
-        path: str,
+        loc: Location,
         type_param_map: dict[str, TypeVar],
     ) -> Type:
         """Infer the type of a runtime value.
@@ -361,7 +358,7 @@ class ConstraintGenerator:
         Args:
             value: The value to infer the type of.
             expected: The expected type (for context).
-            path: Path for error reporting.
+            loc: Location for error reporting.
             type_param_map: Mapping from type parameter names to fresh TypeVars.
 
         Returns:
@@ -376,7 +373,7 @@ class ConstraintGenerator:
         # Handle Node values
         if isinstance(value, node_type):
             # Recursively generate constraints for nested nodes
-            return_type = self._generate_node(value, path)
+            return_type = self._generate_node(value, loc)
             # Return Node[return_type] since the value IS a node
             return TypeCon(node_type, (return_type,))
 
@@ -406,7 +403,7 @@ class ConstraintGenerator:
             elem_type = self._infer_value_type(
                 value[0],
                 Top(),
-                f"{path}[0]",
+                loc.index(0),
                 type_param_map,
             )
             return TypeCon(list, (elem_type,))
@@ -421,8 +418,18 @@ class ConstraintGenerator:
                 )
             # Infer from first key-value pair
             k, v = next(iter(value.items()))
-            key_type = self._infer_value_type(k, Top(), f"{path}.key", type_param_map)
-            val_type = self._infer_value_type(v, Top(), f"{path}.val", type_param_map)
+            key_type = self._infer_value_type(
+                k,
+                Top(),
+                loc.child("key"),
+                type_param_map,
+            )
+            val_type = self._infer_value_type(
+                v,
+                Top(),
+                loc.child("val"),
+                type_param_map,
+            )
             return TypeCon(dict, (key_type, val_type))
 
         if isinstance(value, set):
@@ -434,14 +441,14 @@ class ConstraintGenerator:
             elem_type = self._infer_value_type(
                 elem,
                 Top(),
-                f"{path}.elem",
+                loc.child("elem"),
                 type_param_map,
             )
             return TypeCon(set, (elem_type,))
 
         if isinstance(value, tuple):
             elem_types = tuple(
-                self._infer_value_type(v, Top(), f"{path}[{i}]", type_param_map)
+                self._infer_value_type(v, Top(), loc.index(i), type_param_map)
                 for i, v in enumerate(value)
             )
             return TypeCon(tuple, elem_types)

@@ -41,6 +41,14 @@ class Location:
 
     path: str
 
+    def child(self, segment: str) -> Location:
+        """Create a child location by appending a path segment."""
+        return Location(f"{self.path}.{segment}")
+
+    def index(self, idx: int | str) -> Location:
+        """Create a child location for an indexed access."""
+        return Location(f"{self.path}[{idx!r}]")
+
 
 @dataclass(frozen=True)
 class EqConstraint:
