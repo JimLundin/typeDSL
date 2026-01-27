@@ -145,23 +145,89 @@ class ConstraintGenerator:
             if declared_type is None:
                 continue
 
-            # Convert declared type to our Type representation
-            expected_type = self._python_type_to_type(declared_type, type_param_map)
-
-            # Infer the actual type from the value
-            actual_type = self._infer_value_type(
+            # Generate appropriate constraints based on the field type
+            loc = SourceLocation(field_path)
+            self._generate_field_constraint(
                 field_value,
-                expected_type,
+                declared_type,
                 field_path,
                 type_param_map,
+                loc,
             )
-
-            # Generate constraint: actual <: expected
-            loc = SourceLocation(field_path)
-            self.add(SubConstraint(actual_type, expected_type, loc))
 
         # Return the node's return type (for use by parent nodes)
         return self._get_return_type(node_cls, type_param_map)
+
+    def _generate_field_constraint(
+        self,
+        value: Any,
+        declared_type: Any,
+        path: str,
+        type_param_map: dict[str, TypeVar],
+        loc: SourceLocation,
+    ) -> None:
+        """Generate constraints for a field value against its declared type.
+
+        Handles Node[T] specially by comparing return types directly.
+
+        """
+        node_type, ref_type = _get_node_ref_types()
+
+        origin = get_origin(declared_type)
+        args = get_args(declared_type)
+
+        # Check if declared type is a Node type (Node[T] or SpecificNode[T])
+        is_node_field = (
+            origin is not None
+            and isinstance(origin, type)
+            and issubclass(origin, node_type)
+        )
+
+        if is_node_field and isinstance(value, node_type):
+            # Field expects a node, value is a node
+            # Generate constraints for the nested node first
+            actual_return_type = self._generate_node(value, path)
+
+            # Extract expected return type from Node[T] annotation
+            if args:
+                expected_return_type = self._python_type_to_type(
+                    args[0],
+                    type_param_map,
+                )
+                # Constraint: actual return type <: expected return type
+                self.add(SubConstraint(actual_return_type, expected_return_type, loc))
+
+            # If it's a specific node subclass (not just Node), also check class
+            if origin is not node_type:
+                # Check that the actual node class is a subclass of expected
+                actual_cls = type(value)
+                if not issubclass(actual_cls, origin):
+                    # Generate a failing constraint
+                    self.add(
+                        SubConstraint(
+                            TypeCon(actual_cls, ()),
+                            TypeCon(origin, ()),
+                            loc,
+                        ),
+                    )
+
+        elif is_node_field and isinstance(value, ref_type):
+            # Field expects a node, value is a Ref
+            # In DSL semantics, Ref[Node[T]] is compatible with Node[T]
+            # We trust the ref points to a compatible node
+            # (Full ref resolution would require program context)
+            pass
+
+        else:
+            # Standard case: compare types directly
+            expected_type = self._python_type_to_type(declared_type, type_param_map)
+            actual_type = self._infer_value_type(
+                value,
+                expected_type,
+                path,
+                type_param_map,
+            )
+            self.add(SubConstraint(actual_type, expected_type, loc))
 
     def _python_type_to_type(
         self,
