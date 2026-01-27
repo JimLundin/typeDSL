@@ -112,7 +112,7 @@ def meet(a: Type, b: Type) -> Type:
             if len(args1) != len(args2):
                 return Bottom()
             # Meet the args (invariant means they must be equal)
-            new_args = []
+            new_args: list[Type] = []
             for a1, a2 in zip(args1, args2, strict=False):
                 m = meet(a1, a2)
                 if isinstance(m, Bottom):
@@ -164,7 +164,7 @@ def join(a: Type, b: Type) -> Type:
             if len(args1) != len(args2):
                 return Top()
             # Join the args (invariant means they must be equal)
-            new_args = []
+            new_args: list[Type] = []
             for a1, a2 in zip(args1, args2, strict=False):
                 j = join(a1, a2)
                 if isinstance(j, Top):

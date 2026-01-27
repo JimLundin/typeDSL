@@ -17,6 +17,7 @@ from typing import (
     TypeVar as TypingTypeVar,
 )
 
+from typedsl.nodes import Node, Ref
 from typedsl.typechecker.core import (
     Bottom,
     Constraint,
@@ -31,23 +32,9 @@ from typedsl.typechecker.core import (
 
 if TYPE_CHECKING:
     from typedsl.ast import Program
-    from typedsl.nodes import Node
 
-# Import at runtime to avoid circular imports during type checking
-# These are used for isinstance checks
-_Node: type | None = None
-_Ref: type | None = None
-
-
-def _get_node_ref_types() -> tuple[type, type]:
-    """Get Node and Ref types lazily to avoid circular imports."""
-    global _Node, _Ref  # noqa: PLW0603
-    if _Node is None:
-        from typedsl.nodes import Node, Ref
-
-        _Node = Node
-        _Ref = Ref
-    return _Node, _Ref
+# Dict types have 2 type parameters: key and value
+_DICT_TYPE_ARITY = 2
 
 
 class ConstraintGenerator:
@@ -57,23 +44,15 @@ class ConstraintGenerator:
     between different generic node instances.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, program: Program) -> None:
+        self._program = program
         self._counter = itertools.count()
         self._constraints: list[Constraint] = []
-        self._program: Program | None = None
         # Cache of node IDs to their return types (for refs)
         self._node_return_types: dict[str, Type] = {}
 
     def fresh_var(self, base_name: str) -> TypeVar:
-        """Create a fresh type variable with a unique name.
-
-        Args:
-            base_name: The base name for the variable (e.g., "T").
-
-        Returns:
-            A TypeVar with a unique name like "T$0", "T$1", etc.
-
-        """
+        """Create a fresh type variable with a unique name."""
         unique_name = f"{base_name}${next(self._counter)}"
         return TypeVar(unique_name)
 
@@ -81,55 +60,34 @@ class ConstraintGenerator:
         """Add a constraint to the list."""
         self._constraints.append(constraint)
 
-    def get_constraints(self) -> list[Constraint]:
-        """Get all generated constraints."""
-        return self._constraints
-
-    def generate_program(self, program: Program) -> list[Constraint]:
-        """Generate constraints for an entire Program.
-
-        Args:
-            program: The program to type check.
+    def generate(self) -> list[Constraint]:
+        """Generate constraints for the program.
 
         Returns:
             List of constraints that must be satisfied.
 
         """
-        self._program = program
-        _node_type, ref_type = _get_node_ref_types()
-
         nodes_loc = Location("nodes")
 
         # Process all named nodes and cache their return types
-        for node_id, node in program.nodes.items():
+        for node_id, node in self._program.nodes.items():
             node_loc = nodes_loc.index(node_id)
             return_type = self._generate_node(node, node_loc)
             self._node_return_types[node_id] = return_type
 
         # Process root
         root_loc = Location("root")
-        if isinstance(program.root, ref_type):
-            # Root is a reference - ensure it points to a valid node
-            ref_id = program.root.id
-            if ref_id not in program.nodes:
-                # Invalid ref - generate failing constraint
+        if isinstance(self._program.root, Ref):
+            # Root is a reference - validate it points to a valid node
+            if self._program.root.id not in self._program.nodes:
                 self.add(EqConstraint(Bottom(), Top(), root_loc))
         else:
-            self._generate_node(program.root, root_loc)
+            self._generate_node(self._program.root, root_loc)
 
-        return self.get_constraints()
+        return self._constraints
 
     def _generate_node(self, node: Node[Any], loc: Location) -> Type:
-        """Generate constraints for a single node and return its inferred type.
-
-        Args:
-            node: The node to process.
-            loc: Location for error reporting.
-
-        Returns:
-            The inferred type of this node.
-
-        """
+        """Generate constraints for a single node and return its inferred type."""
         node_cls = type(node)
         hints = get_type_hints(node_cls)
 
@@ -152,7 +110,6 @@ class ConstraintGenerator:
             if declared_type is None:
                 continue
 
-            # Generate appropriate constraints based on the field type
             self._generate_field_constraint(
                 field_value,
                 declared_type,
@@ -160,7 +117,6 @@ class ConstraintGenerator:
                 field_loc,
             )
 
-        # Return the node's return type (for use by parent nodes)
         return self._get_return_type(node_cls, type_param_map)
 
     def _generate_field_constraint(
@@ -170,94 +126,31 @@ class ConstraintGenerator:
         type_param_map: dict[str, TypeVar],
         loc: Location,
     ) -> None:
-        """Generate constraints for a field value against its declared type.
-
-        Handles Node[T] specially by comparing return types directly.
-
-        """
-        node_type, ref_type = _get_node_ref_types()
-
+        """Generate constraints for a field value against its declared type."""
         origin = get_origin(declared_type)
         args = get_args(declared_type)
 
         # Check if declared type is a Node type (Node[T] or SpecificNode[T])
         is_node_field = (
-            origin is not None
-            and isinstance(origin, type)
-            and issubclass(origin, node_type)
+            origin is not None and isinstance(origin, type) and issubclass(origin, Node)
         )
 
-        if is_node_field and isinstance(value, node_type):
-            # Field expects a node, value is a node
-            # Generate constraints for the nested node first
-            actual_return_type = self._generate_node(value, loc)
-
-            # Extract expected return type from Node[T] annotation
-            if args:
-                expected_return_type = self._python_type_to_type(
-                    args[0],
-                    type_param_map,
-                )
-                # Constraint: actual return type <: expected return type
-                self.add(SubConstraint(actual_return_type, expected_return_type, loc))
-
-            # If it's a specific node subclass (not just Node), also check class
-            if origin is not node_type:
-                # Check that the actual node class is a subclass of expected
-                actual_cls = type(value)
-                if not issubclass(actual_cls, origin):
-                    # Generate a failing constraint
-                    self.add(
-                        SubConstraint(
-                            TypeCon(actual_cls, ()),
-                            TypeCon(origin, ()),
-                            loc,
-                        ),
-                    )
-
-        elif is_node_field and isinstance(value, ref_type):
-            # Field expects a node, value is a Ref - resolve and type check
-            ref_id = value.id
-
-            # Get the return type of the referenced node
-            if ref_id in self._node_return_types:
-                # Already processed - use cached return type
-                actual_return_type = self._node_return_types[ref_id]
-            elif self._program is not None and ref_id in self._program.nodes:
-                # Not yet processed - process it now and cache
-                resolved_node = self._program.nodes[ref_id]
-                ref_loc = Location("nodes").index(ref_id)
-                actual_return_type = self._generate_node(resolved_node, ref_loc)
-                self._node_return_types[ref_id] = actual_return_type
-            else:
-                # Invalid ref - generate failing constraint
-                self.add(EqConstraint(Bottom(), Top(), loc))
-                return
-
-            # Extract expected return type from Node[T] annotation
-            if args:
-                expected_return_type = self._python_type_to_type(
-                    args[0],
-                    type_param_map,
-                )
-                # Constraint: actual return type <: expected return type
-                self.add(SubConstraint(actual_return_type, expected_return_type, loc))
-
-            # If it's a specific node subclass (not just Node), also check class
-            if origin is not node_type and self._program is not None:
-                resolved_node = self._program.nodes.get(ref_id)
-                if resolved_node is not None:
-                    actual_cls = type(resolved_node)
-                    if not issubclass(actual_cls, origin):
-                        # Generate a failing constraint
-                        self.add(
-                            SubConstraint(
-                                TypeCon(actual_cls, ()),
-                                TypeCon(origin, ()),
-                                loc,
-                            ),
-                        )
-
+        if is_node_field and isinstance(value, Node):
+            self._generate_node_field_constraint(
+                value,
+                origin,
+                args,
+                type_param_map,
+                loc,
+            )
+        elif is_node_field and isinstance(value, Ref):
+            self._generate_ref_field_constraint(
+                value,
+                origin,
+                args,
+                type_param_map,
+                loc,
+            )
         else:
             # Standard case: compare types directly
             expected_type = self._python_type_to_type(declared_type, type_param_map)
@@ -269,23 +162,81 @@ class ConstraintGenerator:
             )
             self.add(SubConstraint(actual_type, expected_type, loc))
 
+    def _generate_node_field_constraint(
+        self,
+        value: Node[Any],
+        expected_origin: type,
+        args: tuple[Any, ...],
+        type_param_map: dict[str, TypeVar],
+        loc: Location,
+    ) -> None:
+        """Generate constraints for a Node value in a node field."""
+        actual_return_type = self._generate_node(value, loc)
+
+        if args:
+            expected_return_type = self._python_type_to_type(args[0], type_param_map)
+            self.add(SubConstraint(actual_return_type, expected_return_type, loc))
+
+        # If expecting a specific node subclass, check class compatibility
+        if expected_origin is not Node:
+            actual_cls = type(value)
+            if not issubclass(actual_cls, expected_origin):
+                self.add(
+                    SubConstraint(
+                        TypeCon(actual_cls, ()),
+                        TypeCon(expected_origin, ()),
+                        loc,
+                    ),
+                )
+
+    def _generate_ref_field_constraint(
+        self,
+        ref: Ref[Any],
+        expected_origin: type,
+        args: tuple[Any, ...],
+        type_param_map: dict[str, TypeVar],
+        loc: Location,
+    ) -> None:
+        """Generate constraints for a Ref value in a node field."""
+        ref_id = ref.id
+
+        # Get the return type of the referenced node
+        if ref_id in self._node_return_types:
+            actual_return_type = self._node_return_types[ref_id]
+            resolved_node = self._program.nodes.get(ref_id)
+        elif ref_id in self._program.nodes:
+            # Not yet processed - process it now and cache
+            resolved_node = self._program.nodes[ref_id]
+            ref_loc = Location("nodes").index(ref_id)
+            actual_return_type = self._generate_node(resolved_node, ref_loc)
+            self._node_return_types[ref_id] = actual_return_type
+        else:
+            # Invalid ref - generate failing constraint
+            self.add(EqConstraint(Bottom(), Top(), loc))
+            return
+
+        if args:
+            expected_return_type = self._python_type_to_type(args[0], type_param_map)
+            self.add(SubConstraint(actual_return_type, expected_return_type, loc))
+
+        # If expecting a specific node subclass, check class compatibility
+        if expected_origin is not Node and resolved_node is not None:
+            actual_cls = type(resolved_node)
+            if not issubclass(actual_cls, expected_origin):
+                self.add(
+                    SubConstraint(
+                        TypeCon(actual_cls, ()),
+                        TypeCon(expected_origin, ()),
+                        loc,
+                    ),
+                )
+
     def _python_type_to_type(
         self,
         py_type: Any,
         type_param_map: dict[str, TypeVar],
     ) -> Type:
-        """Convert a Python type annotation to our Type representation.
-
-        Args:
-            py_type: The Python type to convert.
-            type_param_map: Mapping from type parameter names to fresh TypeVars.
-
-        Returns:
-            The corresponding Type.
-
-        """
-        node_type, ref_type = _get_node_ref_types()
-
+        """Convert a Python type annotation to our Type representation."""
         # Handle None
         if py_type is None or py_type is type(None):
             return TypeCon(type(None), ())
@@ -295,7 +246,6 @@ class ConstraintGenerator:
             name = py_type.__name__
             if name in type_param_map:
                 return type_param_map[name]
-            # Unknown type var - create fresh one
             fresh = self.fresh_var(name)
             type_param_map[name] = fresh
             return fresh
@@ -305,26 +255,17 @@ class ConstraintGenerator:
 
         # Handle Union types (including X | None)
         if origin is Union or isinstance(py_type, types.UnionType):
-            # For now, treat unions as Top (any of the options)
-            # A more sophisticated approach would create union constraints
             return Top()
 
         # Handle Ref[X]
-        if origin is ref_type:
-            # The type of a Ref is the Ref itself, parameterized by target type
+        if origin is Ref:
             if args:
                 target_type = self._python_type_to_type(args[0], type_param_map)
-                return TypeCon(ref_type, (target_type,))
-            return TypeCon(ref_type, ())
+                return TypeCon(Ref, (target_type,))
+            return TypeCon(Ref, ())
 
         # Handle Node[T] and node subclasses
-        is_node_origin = (
-            origin is not None
-            and isinstance(origin, type)
-            and issubclass(origin, node_type)
-        )
-        if is_node_origin:
-            # This is a type annotation like Node[int] or SomeNode[T]
+        if origin is not None and isinstance(origin, type) and issubclass(origin, Node):
             if args:
                 converted_args = tuple(
                     self._python_type_to_type(a, type_param_map) for a in args
@@ -343,7 +284,6 @@ class ConstraintGenerator:
         if isinstance(py_type, type):
             return TypeCon(py_type, ())
 
-        # Fallback
         return Top()
 
     def _infer_value_type(
@@ -353,53 +293,27 @@ class ConstraintGenerator:
         loc: Location,
         type_param_map: dict[str, TypeVar],
     ) -> Type:
-        """Infer the type of a runtime value.
-
-        Args:
-            value: The value to infer the type of.
-            expected: The expected type (for context).
-            loc: Location for error reporting.
-            type_param_map: Mapping from type parameter names to fresh TypeVars.
-
-        Returns:
-            The inferred Type.
-
-        """
-        node_type, ref_type = _get_node_ref_types()
-
+        """Infer the type of a runtime value."""
         if value is None:
             return TypeCon(type(None), ())
 
-        # Handle Node values
-        if isinstance(value, node_type):
-            # Recursively generate constraints for nested nodes
+        if isinstance(value, Node):
             return_type = self._generate_node(value, loc)
-            # Return Node[return_type] since the value IS a node
-            return TypeCon(node_type, (return_type,))
+            return TypeCon(Node, (return_type,))
 
-        # Handle Ref values
-        if isinstance(value, ref_type):
-            # A Ref's type depends on what it references
-            # In the DSL, Ref[Node[X]] is interchangeable with Node[X]
-            # So if expected is Node[X], return Node[X]
-            if isinstance(expected, TypeCon) and expected.constructor is node_type:
-                # Ref[Node[X]] is used where Node[X] is expected - compatible
+        if isinstance(value, Ref):
+            if isinstance(expected, TypeCon) and expected.constructor is Node:
                 return expected
-            if isinstance(expected, TypeCon) and expected.constructor is ref_type:
-                # Ref[X] expected, use the expected type
+            if isinstance(expected, TypeCon) and expected.constructor is Ref:
                 return expected
-            # Otherwise create a Ref type with fresh variable
             fresh_target = self.fresh_var("RefTarget")
-            return TypeCon(ref_type, (fresh_target,))
+            return TypeCon(Ref, (fresh_target,))
 
-        # Handle containers
         if isinstance(value, list):
             if not value:
-                # Empty list - use expected element type or fresh var
                 if isinstance(expected, TypeCon) and expected.args:
                     return expected
                 return TypeCon(list, (self.fresh_var("ListElem"),))
-            # Infer from first element (simplification)
             elem_type = self._infer_value_type(
                 value[0],
                 Top(),
@@ -410,13 +324,16 @@ class ConstraintGenerator:
 
         if isinstance(value, dict):
             if not value:
-                if isinstance(expected, TypeCon) and len(expected.args) >= 2:  # noqa: PLR2004
+                has_key_value_types = (
+                    isinstance(expected, TypeCon)
+                    and len(expected.args) >= _DICT_TYPE_ARITY
+                )
+                if has_key_value_types:
                     return expected
                 return TypeCon(
                     dict,
                     (self.fresh_var("DictKey"), self.fresh_var("DictVal")),
                 )
-            # Infer from first key-value pair
             k, v = next(iter(value.items()))
             key_type = self._infer_value_type(
                 k,
@@ -453,7 +370,6 @@ class ConstraintGenerator:
             )
             return TypeCon(tuple, elem_types)
 
-        # Handle primitives
         return TypeCon(type(value), ())
 
     def _get_return_type(
@@ -461,47 +377,25 @@ class ConstraintGenerator:
         node_cls: type[Node[Any]],
         type_param_map: dict[str, TypeVar],
     ) -> Type:
-        """Get the return type of a node class.
-
-        Args:
-            node_cls: The node class.
-            type_param_map: Mapping from type parameter names to fresh TypeVars.
-
-        Returns:
-            The return type as a Type.
-
-        """
-        node_type, _ = _get_node_ref_types()
-
-        # Look for Node[T] in __orig_bases__
+        """Get the return type of a node class."""
         for base in getattr(node_cls, "__orig_bases__", ()):
             origin = get_origin(base)
             if origin is None:
                 continue
-            if isinstance(origin, type) and issubclass(origin, node_type):
+            if isinstance(origin, type) and issubclass(origin, Node):
                 args = get_args(base)
                 if args:
                     return_type = args[0]
-                    # If it's a TypeVar, use our fresh one
                     if isinstance(return_type, TypingTypeVar):
                         name = return_type.__name__
                         if name in type_param_map:
                             return type_param_map[name]
                     return self._python_type_to_type(return_type, type_param_map)
 
-        # Default to Top (unknown)
         return Top()
 
 
 def generate_constraints(program: Program) -> list[Constraint]:
-    """Generate type constraints for a Program.
-
-    Args:
-        program: The program to type check.
-
-    Returns:
-        List of constraints that must be satisfied for the program to type check.
-
-    """
-    generator = ConstraintGenerator()
-    return generator.generate_program(program)
+    """Generate type constraints for a Program."""
+    generator = ConstraintGenerator(program)
+    return generator.generate()

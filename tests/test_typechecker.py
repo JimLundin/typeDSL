@@ -595,7 +595,9 @@ class TestConstraintGenerator:
 
     def test_fresh_var_generates_unique_names(self) -> None:
         """Fresh variables have unique names."""
-        gen = ConstraintGenerator()
+        # Need a program to create a generator
+        prog = Program(root=Literal(value=0))
+        gen = ConstraintGenerator(prog)
         v1 = gen.fresh_var("T")
         v2 = gen.fresh_var("T")
         v3 = gen.fresh_var("U")
@@ -634,9 +636,8 @@ class TestConstraintGenerator:
     def test_generic_node_creates_fresh_type_vars(self) -> None:
         """Generic nodes get fresh type variables."""
         prog = Program(root=Box(value=42))
-        gen = ConstraintGenerator()
-        gen.generate_program(prog)
-        constraints = gen.get_constraints()
+        gen = ConstraintGenerator(prog)
+        constraints = gen.generate()
 
         # The Box[T] should have a fresh type var for T
         assert len(constraints) >= 1
@@ -654,12 +655,12 @@ class TestConstraintGenerator:
             nodes={"box_int": box_int, "box_str": box_str},
         )
 
-        gen = ConstraintGenerator()
-        gen.generate_program(prog)
+        gen = ConstraintGenerator(prog)
+        constraints = gen.generate()
 
         # Should have created at least 2 different type vars for the two boxes
         # (T$0 and T$1 or similar)
-        result = typecheck(gen.get_constraints())
+        result = typecheck(constraints)
         assert result is None
 
     def test_program_with_refs(self) -> None:
