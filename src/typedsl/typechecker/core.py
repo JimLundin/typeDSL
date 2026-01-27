@@ -36,10 +36,10 @@ Type = TypeVar | TypeCon | Top | Bottom
 
 
 @dataclass(frozen=True)
-class SourceLocation:
+class Location:
     """Location information for error reporting."""
 
-    description: str
+    path: str
 
 
 @dataclass(frozen=True)
@@ -48,7 +48,7 @@ class EqConstraint:
 
     left: Type
     right: Type
-    location: SourceLocation
+    location: Location
 
 
 @dataclass(frozen=True)
@@ -57,7 +57,7 @@ class SubConstraint:
 
     sub: Type
     sup: Type
-    location: SourceLocation
+    location: Location
 
 
 # Union type for all constraints

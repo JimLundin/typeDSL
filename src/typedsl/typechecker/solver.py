@@ -9,7 +9,7 @@ from typedsl.typechecker.core import (
     Bottom,
     Constraint,
     EqConstraint,
-    SourceLocation,
+    Location,
     SubConstraint,
     Top,
     Type,
@@ -28,13 +28,13 @@ from typedsl.typechecker.operations import (
 
 @dataclass
 class TypeError(Exception):
-    """Type error with source location information."""
+    """Type error with location information."""
 
     message: str
-    location: SourceLocation
+    location: Location
 
     def __str__(self) -> str:
-        return f"{self.message} at {self.location.description}"
+        return f"{self.message} at {self.location.path}"
 
 
 class Solver:
@@ -62,7 +62,7 @@ class Solver:
             )
         return self._vars[name]
 
-    def add_upper(self, name: str, bound: Type, loc: SourceLocation) -> None:
+    def add_upper(self, name: str, bound: Type, loc: Location) -> None:
         """Add upper bound and validate immediately.
 
         Args:
@@ -78,7 +78,7 @@ class Solver:
         info.upper = meet(info.upper, bound)
         self._validate(name, info, loc)
 
-    def add_lower(self, name: str, bound: Type, loc: SourceLocation) -> None:
+    def add_lower(self, name: str, bound: Type, loc: Location) -> None:
         """Add lower bound and validate immediately.
 
         Args:
@@ -94,7 +94,7 @@ class Solver:
         info.lower = join(info.lower, bound)
         self._validate(name, info, loc)
 
-    def bind(self, name: str, t: Type, loc: SourceLocation) -> list[Constraint]:
+    def bind(self, name: str, t: Type, loc: Location) -> list[Constraint]:
         """Bind variable to exact type (both bounds = t).
 
         Args:
@@ -131,7 +131,7 @@ class Solver:
         self._validate(name, info, loc)
         return []
 
-    def _validate(self, name: str, info: TypeVarInfo, loc: SourceLocation) -> None:
+    def _validate(self, name: str, info: TypeVarInfo, loc: Location) -> None:
         """Fail fast on invalid bounds.
 
         Args:

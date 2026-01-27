@@ -21,7 +21,7 @@ from typedsl.typechecker.core import (
     Bottom,
     Constraint,
     EqConstraint,
-    SourceLocation,
+    Location,
     SubConstraint,
     Top,
     Type,
@@ -110,7 +110,7 @@ class ConstraintGenerator:
             if ref_id not in program.nodes:
                 # Invalid ref - this is a structural error, not a type error
                 # But we could add a constraint that will fail
-                loc = SourceLocation("root ref target")
+                loc = Location("root ref target")
                 self.add(EqConstraint(Bottom(), Top(), loc))
         else:
             self._generate_node(program.root, "root")
@@ -151,7 +151,7 @@ class ConstraintGenerator:
                 continue
 
             # Generate appropriate constraints based on the field type
-            loc = SourceLocation(field_path)
+            loc = Location(field_path)
             self._generate_field_constraint(
                 field_value,
                 declared_type,
@@ -169,7 +169,7 @@ class ConstraintGenerator:
         declared_type: Any,
         path: str,
         type_param_map: dict[str, TypeVar],
-        loc: SourceLocation,
+        loc: Location,
     ) -> None:
         """Generate constraints for a field value against its declared type.
 

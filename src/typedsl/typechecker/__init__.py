@@ -4,7 +4,7 @@ from typedsl.typechecker.core import (
     Bottom,
     Constraint,
     EqConstraint,
-    SourceLocation,
+    Location,
     SubConstraint,
     Top,
     Type,
@@ -37,8 +37,8 @@ __all__ = [
     "Constraint",
     "ConstraintGenerator",
     "EqConstraint",
+    "Location",
     "Solver",
-    "SourceLocation",
     "SubConstraint",
     "Top",
     # Core types

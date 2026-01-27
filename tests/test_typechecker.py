@@ -6,8 +6,8 @@ from typedsl.typechecker import (
     Bottom,
     ConstraintGenerator,
     EqConstraint,
+    Location,
     Solver,
-    SourceLocation,
     SubConstraint,
     Top,
     TypeCon,
@@ -25,9 +25,9 @@ from typedsl.typechecker import (
 )
 
 
-def loc(desc: str = "test") -> SourceLocation:
-    """Create a source location for tests."""
-    return SourceLocation(desc)
+def loc(path: str = "test") -> Location:
+    """Create a location for tests."""
+    return Location(path)
 
 
 class TestOccurs:
