@@ -98,10 +98,12 @@ ignore = [
 "src/typedsl/typechecker/*.py" = [
     "A001",     # TypeError shadows builtin intentionally
     "A004",     # TypeError import shadows builtin intentionally
+    "ANN401",   # Any required for type introspection
     "C901",     # pattern matching functions are inherently complex
-    "PLR0911",  # multiple returns needed for pattern matching
-    "PLR0912",  # multiple branches needed for pattern matching
     "D105",     # __str__ docstring not needed for simple methods
     "D107",     # __init__ docstring not needed for simple methods
+    "PLC0415",  # lazy import needed to avoid circular imports
+    "PLR0911",  # multiple returns needed for pattern matching
+    "PLR0912",  # multiple branches needed for pattern matching
     "TRY300",   # return in try block is fine for simple error handling
 ]

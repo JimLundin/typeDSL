@@ -12,6 +12,10 @@ from typedsl.typechecker.core import (
     TypeVar,
     TypeVarInfo,
 )
+from typedsl.typechecker.generate import (
+    ConstraintGenerator,
+    generate_constraints,
+)
 from typedsl.typechecker.operations import (
     is_subtype,
     join,
@@ -31,6 +35,7 @@ __all__ = [
     "Bottom",
     # Constraints
     "Constraint",
+    "ConstraintGenerator",
     "EqConstraint",
     "Solver",
     "SourceLocation",
@@ -44,6 +49,8 @@ __all__ = [
     "TypeVar",
     # Solver state
     "TypeVarInfo",
+    # Constraint generation
+    "generate_constraints",
     "is_subtype",
     "join",
     "meet",
