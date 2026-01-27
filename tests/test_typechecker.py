@@ -552,6 +552,12 @@ class Literal(Node[int], tag="tc_literal"):
     value: int
 
 
+class StringLiteral(Node[str], tag="tc_string_literal"):
+    """A literal string value."""
+
+    value: str
+
+
 class Add(Node[int], tag="tc_add"):
     """Add two integer nodes."""
 
@@ -773,3 +779,93 @@ class TestConstraintGeneratorIntegration:
         constraints = generate_constraints(prog)
         result = typecheck(constraints)
         assert result is None
+
+
+class TestRefResolution:
+    """Tests for ref resolution during type checking."""
+
+    def test_ref_with_correct_return_type(self) -> None:
+        """Ref to node with matching return type passes."""
+        prog = Program(
+            root=Add(
+                left=Ref[Node[int]](id="x"),
+                right=Literal(value=2),
+            ),
+            nodes={
+                "x": Literal(value=1),
+            },
+        )
+        constraints = generate_constraints(prog)
+        result = typecheck(constraints)
+        assert result is None
+
+    def test_ref_with_wrong_return_type_fails(self) -> None:
+        """Ref to node with incompatible return type fails."""
+        # Add expects Node[int], but "s" is a StringLiteral which returns str
+        prog = Program(
+            root=Add(
+                left=Ref[Node[int]](id="s"),  # Claims to be Node[int]
+                right=Literal(value=2),
+            ),
+            nodes={
+                "s": StringLiteral(value="hello"),  # Actually returns str
+            },
+        )
+        constraints = generate_constraints(prog)
+        result = typecheck(constraints)
+        assert isinstance(result, TypeError)
+
+    def test_invalid_ref_fails(self) -> None:
+        """Ref to non-existent node fails."""
+        prog = Program(
+            root=Add(
+                left=Ref[Node[int]](id="nonexistent"),
+                right=Literal(value=2),
+            ),
+            nodes={},
+        )
+        constraints = generate_constraints(prog)
+        result = typecheck(constraints)
+        # Invalid ref generates Bottom = Top constraint which always fails
+        assert isinstance(result, TypeError)
+
+    def test_ref_chain_type_checks(self) -> None:
+        """Chain of refs with consistent types passes."""
+        prog = Program(
+            root=Ref[Node[int]](id="final"),
+            nodes={
+                "x": Literal(value=10),
+                "y": Literal(value=20),
+                "intermediate": Add(
+                    left=Ref[Node[int]](id="x"),
+                    right=Ref[Node[int]](id="y"),
+                ),
+                "final": Add(
+                    left=Ref[Node[int]](id="intermediate"),
+                    right=Literal(value=5),
+                ),
+            },
+        )
+        constraints = generate_constraints(prog)
+        result = typecheck(constraints)
+        assert result is None
+
+    def test_ref_chain_with_type_mismatch_fails(self) -> None:
+        """Chain of refs with type mismatch fails."""
+        prog = Program(
+            root=Add(
+                left=Ref[Node[int]](id="bad"),
+                right=Literal(value=1),
+            ),
+            nodes={
+                "str_node": StringLiteral(value="oops"),
+                # bad tries to add a string node to an int
+                "bad": Add(
+                    left=Ref[Node[int]](id="str_node"),
+                    right=Literal(value=1),
+                ),
+            },
+        )
+        constraints = generate_constraints(prog)
+        result = typecheck(constraints)
+        assert isinstance(result, TypeError)

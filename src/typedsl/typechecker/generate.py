@@ -60,6 +60,9 @@ class ConstraintGenerator:
     def __init__(self) -> None:
         self._counter = itertools.count()
         self._constraints: list[Constraint] = []
+        self._program: Program | None = None
+        # Cache of node IDs to their return types (for refs)
+        self._node_return_types: dict[str, Type] = {}
 
     def fresh_var(self, base_name: str) -> TypeVar:
         """Create a fresh type variable with a unique name.
@@ -92,11 +95,13 @@ class ConstraintGenerator:
             List of constraints that must be satisfied.
 
         """
+        self._program = program
         _node_type, ref_type = _get_node_ref_types()
 
-        # Process all named nodes
+        # Process all named nodes and cache their return types
         for node_id, node in program.nodes.items():
-            self._generate_node(node, f"nodes[{node_id!r}]")
+            return_type = self._generate_node(node, f"nodes[{node_id!r}]")
+            self._node_return_types[node_id] = return_type
 
         # Process root
         if isinstance(program.root, ref_type):
@@ -212,11 +217,49 @@ class ConstraintGenerator:
                     )
 
         elif is_node_field and isinstance(value, ref_type):
-            # Field expects a node, value is a Ref
-            # In DSL semantics, Ref[Node[T]] is compatible with Node[T]
-            # We trust the ref points to a compatible node
-            # (Full ref resolution would require program context)
-            pass
+            # Field expects a node, value is a Ref - resolve and type check
+            ref_id = value.id
+
+            # Get the return type of the referenced node
+            if ref_id in self._node_return_types:
+                # Already processed - use cached return type
+                actual_return_type = self._node_return_types[ref_id]
+            elif self._program is not None and ref_id in self._program.nodes:
+                # Not yet processed - process it now and cache
+                resolved_node = self._program.nodes[ref_id]
+                actual_return_type = self._generate_node(
+                    resolved_node,
+                    f"nodes[{ref_id!r}]",
+                )
+                self._node_return_types[ref_id] = actual_return_type
+            else:
+                # Invalid ref - generate failing constraint
+                self.add(EqConstraint(Bottom(), Top(), loc))
+                return
+
+            # Extract expected return type from Node[T] annotation
+            if args:
+                expected_return_type = self._python_type_to_type(
+                    args[0],
+                    type_param_map,
+                )
+                # Constraint: actual return type <: expected return type
+                self.add(SubConstraint(actual_return_type, expected_return_type, loc))
+
+            # If it's a specific node subclass (not just Node), also check class
+            if origin is not node_type and self._program is not None:
+                resolved_node = self._program.nodes.get(ref_id)
+                if resolved_node is not None:
+                    actual_cls = type(resolved_node)
+                    if not issubclass(actual_cls, origin):
+                        # Generate a failing constraint
+                        self.add(
+                            SubConstraint(
+                                TypeCon(actual_cls, ()),
+                                TypeCon(origin, ()),
+                                loc,
+                            ),
+                        )
 
         else:
             # Standard case: compare types directly
