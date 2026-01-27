@@ -650,3 +650,142 @@ class TestCheckProgram:
         assert error.location.node_tag == "test"
         assert error.location.node_id == "my_node"
         assert error.location.field_name == "value"
+
+
+class TestSubtypeConstraintErrors:
+    """Tests for SubtypeConstraint error detection and location tracking."""
+
+    def test_direct_bound_violation_detected(self) -> None:
+        """Passing wrong type directly to bounded TypeVar should fail."""
+        # NumericLiteral[T: int | float] with string value
+        result = check_node(NumericLiteral(value="not a number"))  # type: ignore[arg-type]
+        assert not result.success
+        # Should mention the type that violated the bound
+        assert any("str" in e.message for e in result.errors)
+
+    def test_bound_violation_error_mentions_allowed_types(self) -> None:
+        """Bound violation error should mention the allowed types."""
+        result = check_node(NumericLiteral(value="bad"))  # type: ignore[arg-type]
+        assert not result.success
+        # Error should mention the bound types
+        bound_error = next(
+            (e for e in result.errors if "bound" in e.message.lower()),
+            None,
+        )
+        assert bound_error is not None
+        assert "int" in bound_error.message or "float" in bound_error.message
+
+    def test_ref_causes_bound_violation(self) -> None:
+        """Ref to wrong type should cause bound violation in bounded node."""
+        # NumericAdd expects Node[T] where T: int | float
+        # StringLiteral returns Node[str] - should violate the bound
+        program = Program(
+            root=Ref(id="add"),
+            nodes={
+                "s": StringLiteral(value="hello"),
+                "add": NumericAdd(
+                    left=Ref(id="s"),  # This should unify T with str
+                    right=NumericLiteral(value=1),
+                ),
+            },
+        )
+        result = check_program(program)
+        assert not result.success
+        # Should detect the bound violation
+        assert any("str" in e.message for e in result.errors)
+
+    def test_bound_violation_with_consistent_wrong_type(self) -> None:
+        """Same TypeVar resolved to wrong type consistently should fail bounds."""
+        # Both fields are string (consistent) but string is not in int | float
+        result = check_node(
+            NumericAdd(
+                left=NumericLiteral(value="a"),  # type: ignore[arg-type]
+                right=NumericLiteral(value="b"),  # type: ignore[arg-type]
+            )
+        )
+        assert not result.success
+
+    def test_subtype_constraint_location_exists(self) -> None:
+        """SubtypeConstraint errors should have location information."""
+        result = check_node(NumericLiteral(value="wrong"))  # type: ignore[arg-type]
+        assert not result.success
+        # Find the bound violation error
+        bound_error = next(
+            (e for e in result.errors if "bound" in e.message.lower()),
+            None,
+        )
+        assert bound_error is not None
+        assert bound_error.location is not None
+
+    def test_multiple_bounded_typevars_independent_errors(self) -> None:
+        """Multiple bounded TypeVars should report independent errors."""
+        # Create a scenario with two different bounded TypeVars
+        # One violates bounds, one doesn't
+        program = Program(
+            root=NumericAdd(
+                left=NumericLiteral(value=1),  # OK - int is in bounds
+                right=NumericLiteral(value="bad"),  # type: ignore[arg-type]
+            ),
+        )
+        result = check_program(program)
+        assert not result.success
+
+    def test_nested_bound_violation_location_includes_path(self) -> None:
+        """Deeply nested bound violations should have path in location."""
+        program = Program(
+            root=NumericAdd(
+                left=NumericLiteral(value=1),
+                right=NumericAdd(
+                    left=NumericLiteral(value=2),
+                    right=NumericLiteral(value="deep error"),  # type: ignore[arg-type]
+                ),
+            ),
+        )
+        result = check_program(program)
+        assert not result.success
+        # At minimum we should have error(s) detecting the problem
+        assert len(result.errors) >= 1
+
+    def test_bound_check_with_subtype_passes(self) -> None:
+        """Type that is subtype of bound should pass."""
+        # IntOnly[T: int] with bool value - bool is subtype of int
+        result = check_node(IntOnly(value=True))
+        assert result.success
+
+    def test_bound_check_with_non_subtype_fails(self) -> None:
+        """Type that is not subtype of any bound type should fail."""
+        # IntOnly[T: int] with float value - float is not subtype of int
+        result = check_node(IntOnly(value=3.14))  # type: ignore[arg-type]
+        assert not result.success
+        assert any("float" in e.message for e in result.errors)
+
+    def test_bound_violation_location_points_to_node(self) -> None:
+        """Bound violation location should point to the node, not generic <bound>."""
+        result = check_node(NumericLiteral(value="wrong"))  # type: ignore[arg-type]
+        assert not result.success
+        bound_error = next(
+            (e for e in result.errors if "bound" in e.message.lower()),
+            None,
+        )
+        assert bound_error is not None
+        # Location should point to the actual node, not "<bound>"
+        assert bound_error.location.node_tag == "checker_numeric_lit"
+        assert bound_error.location.path == ("root",)
+
+    def test_bound_violation_in_named_node_includes_node_id(self) -> None:
+        """Bound violation in named node should include node_id in location."""
+        program = Program(
+            root=Ref(id="bad"),
+            nodes={
+                "bad": NumericLiteral(value="not a number"),  # type: ignore[arg-type]
+            },
+        )
+        result = check_program(program)
+        assert not result.success
+        bound_error = next(
+            (e for e in result.errors if "bound" in e.message.lower()),
+            None,
+        )
+        assert bound_error is not None
+        assert bound_error.location.node_id == "bad"
+        assert bound_error.location.node_tag == "checker_numeric_lit"

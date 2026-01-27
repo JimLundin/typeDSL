@@ -62,15 +62,16 @@ class ConstraintGenerator:
     def __init__(self, program: Program) -> None:
         self.program = program
         self.var_factory = TVarFactory()
-        self.constraints: list[EqualityConstraint] = []
+        self.constraints: list[Constraint] = []
         self._node_return_types: dict[str, TExpr] = {}
         self._visited: set[int] = set()
+        self.emitted_bound_tvars: set[int] = set()  # Track TVars with emitted bounds
 
-    def generate(self) -> list[EqualityConstraint]:
+    def generate(self) -> list[Constraint]:
         """Generate all constraints for the program.
 
         Returns:
-            A list of type constraints.
+            A list of type constraints (equality and subtype).
 
         """
         # First pass: collect return types for all named nodes
@@ -183,7 +184,37 @@ class ConstraintGenerator:
                 ),
             )
 
+        # Emit SubtypeConstraints for bounded TVars used in this node
+        self._emit_bound_constraints(typevar_map, node_tag, node_id, path)
+
         return TCon(Node, (return_type,))
+
+    def _emit_bound_constraints(
+        self,
+        typevar_map: dict[TypeVar, CheckerTVar],
+        node_tag: str,
+        node_id: str | None,
+        path: tuple[str, ...],
+    ) -> None:
+        """Emit SubtypeConstraints for any bounded TVars in the mapping."""
+        for tvar in typevar_map.values():
+            if tvar.id in self.emitted_bound_tvars:
+                continue
+            if bound_types := self.var_factory.bounds.get(tvar.id):
+                location = Location(
+                    node_tag=node_tag,
+                    node_id=node_id,
+                    field_name=None,
+                    path=path,
+                )
+                self.constraints.append(
+                    SubtypeConstraint(
+                        type_var=tvar,
+                        allowed_types=bound_types,
+                        location=location,
+                    ),
+                )
+                self.emitted_bound_tvars.add(tvar.id)
 
     def _infer_single_elem_container_type(
         self,
@@ -314,9 +345,10 @@ def generate_constraints(program: Program) -> list[Constraint]:
     generator = ConstraintGenerator(program)
     constraints: list[Constraint] = list(generator.generate())
 
-    # Convert bounds to SubtypeConstraints
+    # Add SubtypeConstraints for any bounds not emitted inline (edge cases)
     for var_id, bound_types in generator.var_factory.bounds.items():
-        # Use a generic location for bound constraints
+        if var_id in generator.emitted_bound_tvars:
+            continue
         location = Location(
             node_tag="<bound>",
             node_id=None,
