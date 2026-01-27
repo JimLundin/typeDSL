@@ -257,6 +257,31 @@ class StringLiteral(Node[str], tag="checker_string_lit"):
     value: str
 
 
+# Nodes for testing constraint error locations
+class NumericProcessor[T: int | float](Node[T], tag="checker_numeric_processor"):
+    """Bounded node that takes a subnode - for testing bound violation via subnode."""
+
+    child: Node[T]
+
+
+class NumericRefProcessor[T: int | float](Node[T], tag="checker_numeric_ref_processor"):
+    """Bounded node that takes a Ref to subnode."""
+
+    child: Ref[Node[T]]
+
+
+class IntProcessor(Node[int], tag="checker_int_processor"):
+    """Concrete node expecting Node[int] - for testing EqualityConstraint errors."""
+
+    child: Node[int]
+
+
+class IntRefProcessor(Node[int], tag="checker_int_ref_processor"):
+    """Concrete node expecting Ref[Node[int]]."""
+
+    child: Ref[Node[int]]
+
+
 class TestGenericNodes:
     """Tests for generic node type checking."""
 
@@ -701,7 +726,7 @@ class TestSubtypeConstraintErrors:
             NumericAdd(
                 left=NumericLiteral(value="a"),  # type: ignore[arg-type]
                 right=NumericLiteral(value="b"),  # type: ignore[arg-type]
-            )
+            ),
         )
         assert not result.success
 
@@ -789,3 +814,204 @@ class TestSubtypeConstraintErrors:
         assert bound_error is not None
         assert bound_error.location.node_id == "bad"
         assert bound_error.location.node_tag == "checker_numeric_lit"
+
+
+class TestConstraintErrorLocations:
+    """Tests that verify error locations correctly identify the source of type errors.
+
+    This class tests the distinction between:
+    - EqualityConstraint errors: when types can't unify (e.g., int vs str)
+    - SubtypeConstraint errors: when a TypeVar is resolved outside its bounds
+
+    For each scenario, we verify:
+    1. The correct error type is raised
+    2. The error location points to the right node/field
+    """
+
+    def test_equality_error_when_concrete_type_mismatch(self) -> None:
+        """Passing wrong concrete type to concrete field is EqualityConstraint error.
+
+        IntProcessor expects Node[int], passing StringLiteral (Node[str])
+        results in EqualityConstraint failure: int != str
+        """
+        program = Program(
+            root=IntProcessor(child=StringLiteral(value="hello")),
+        )
+        result = check_program(program)
+        assert not result.success
+
+        # This should be an EqualityConstraint error (type mismatch)
+        # NOT a SubtypeConstraint error (no bounded TypeVar involved)
+        assert any("mismatch" in e.message.lower() for e in result.errors)
+        # No bound error should appear
+        assert not any("bound" in e.message.lower() for e in result.errors)
+
+        # Error should point to IntProcessor's child field
+        error = result.errors[0]
+        assert error.location.node_tag == "checker_int_processor"
+        assert error.location.field_name == "child"
+
+    def test_subtype_error_when_bounded_typevar_violated(self) -> None:
+        """Passing wrong type to bounded TypeVar field is SubtypeConstraint error.
+
+        NumericProcessor[T: int | float] receives StringLiteral (Node[str]).
+        T unifies to str, then SubtypeConstraint T <: int | float fails.
+        """
+        program = Program(
+            root=NumericProcessor(child=StringLiteral(value="hello")),
+        )
+        result = check_program(program)
+        assert not result.success
+
+        # This should include a SubtypeConstraint error (bound violation)
+        bound_error = next(
+            (e for e in result.errors if "bound" in e.message.lower()),
+            None,
+        )
+        assert bound_error is not None, f"Expected bound error, got: {result.errors}"
+        assert "str" in bound_error.message
+        assert "int" in bound_error.message or "float" in bound_error.message
+
+        # Bound error location should point to NumericProcessor (where T is bounded)
+        assert bound_error.location.node_tag == "checker_numeric_processor"
+
+    def test_equality_error_via_ref_concrete_type(self) -> None:
+        """Ref to wrong concrete type is EqualityConstraint error.
+
+        IntRefProcessor expects Ref[Node[int]], but refs to StringLiteral (Node[str]).
+        """
+        program = Program(
+            root=Ref(id="processor"),
+            nodes={
+                "str_node": StringLiteral(value="hello"),
+                "processor": IntRefProcessor(child=Ref(id="str_node")),
+            },
+        )
+        result = check_program(program)
+        assert not result.success
+
+        # Should be type mismatch, not bound violation
+        assert any("mismatch" in e.message.lower() for e in result.errors)
+
+        # Error should point to IntRefProcessor
+        mismatch_error = next(
+            e for e in result.errors if "mismatch" in e.message.lower()
+        )
+        assert mismatch_error.location.node_tag == "checker_int_ref_processor"
+
+    def test_subtype_error_via_ref_bounded_typevar(self) -> None:
+        """Ref to wrong type for bounded TypeVar is SubtypeConstraint error.
+
+        NumericRefProcessor[T: int | float] refs to StringLiteral (Node[str]).
+        T unifies to str via Ref, then SubtypeConstraint fails.
+        """
+        program = Program(
+            root=Ref(id="processor"),
+            nodes={
+                "str_node": StringLiteral(value="hello"),
+                "processor": NumericRefProcessor(child=Ref(id="str_node")),
+            },
+        )
+        result = check_program(program)
+        assert not result.success
+
+        # Should have bound violation error
+        bound_error = next(
+            (e for e in result.errors if "bound" in e.message.lower()),
+            None,
+        )
+        assert bound_error is not None
+        assert "str" in bound_error.message
+
+        # Bound error points to NumericRefProcessor (where T's bound is declared)
+        assert bound_error.location.node_tag == "checker_numeric_ref_processor"
+        assert bound_error.location.node_id == "processor"
+
+    def test_nested_bound_violation_location_chain(self) -> None:
+        """Bound violation in nested node shows correct location chain.
+
+        Structure: NumericProcessor -> child: NumericLiteral(value="bad")
+        The bound violation is on NumericProcessor's T, not NumericLiteral's T.
+        """
+        program = Program(
+            root=NumericProcessor(
+                child=NumericLiteral(value="bad"),  # type: ignore[arg-type]
+            ),
+        )
+        result = check_program(program)
+        assert not result.success
+
+        # Both nodes have bounded TypeVars, so we might get multiple bound errors
+        bound_errors = [e for e in result.errors if "bound" in e.message.lower()]
+        assert len(bound_errors) >= 1
+
+        # At least one should point to the inner NumericLiteral
+        inner_error = next(
+            (e for e in bound_errors if e.location.node_tag == "checker_numeric_lit"),
+            None,
+        )
+        assert inner_error is not None
+        # The path should show we're inside root
+        assert "root" in inner_error.location.path
+
+    def test_valid_bounded_subnode_succeeds(self) -> None:
+        """Valid type for bounded TypeVar should succeed.
+
+        NumericProcessor[T: int | float] with IntLiteral (Node[int]) child.
+        T unifies to int, which satisfies the bound.
+        """
+        program = Program(
+            root=NumericProcessor(child=IntLiteral(value=42)),
+        )
+        result = check_program(program)
+        assert result.success
+
+    def test_valid_bounded_ref_succeeds(self) -> None:
+        """Valid Ref type for bounded TypeVar should succeed."""
+        program = Program(
+            root=Ref(id="processor"),
+            nodes={
+                "num": IntLiteral(value=42),
+                "processor": NumericRefProcessor(child=Ref(id="num")),
+            },
+        )
+        result = check_program(program)
+        assert result.success
+
+    def test_error_distinguishes_which_constraint_failed(self) -> None:
+        """Test that we can identify whether Equality or Subtype constraint failed.
+
+        Two separate programs to verify both error types are reported correctly.
+        """
+        # Test 1: EqualityConstraint error - IntProcessor expects int, gets str
+        program1 = Program(
+            root=Ref(id="int_proc"),
+            nodes={
+                "bad_string": StringLiteral(value="hello"),
+                "int_proc": IntProcessor(child=Ref(id="bad_string")),
+            },
+        )
+        result1 = check_program(program1)
+        assert not result1.success
+        assert any("mismatch" in e.message.lower() for e in result1.errors)
+        assert not any("bound" in e.message.lower() for e in result1.errors)
+
+        mismatch_error = next(
+            e for e in result1.errors if "mismatch" in e.message.lower()
+        )
+        assert mismatch_error.location.node_tag == "checker_int_processor"
+
+        # Test 2: SubtypeConstraint error - NumericProcessor[T: int|float] gets str
+        program2 = Program(
+            root=Ref(id="num_proc"),
+            nodes={
+                "bad_string": StringLiteral(value="hello"),
+                "num_proc": NumericRefProcessor(child=Ref(id="bad_string")),
+            },
+        )
+        result2 = check_program(program2)
+        assert not result2.success
+        assert any("bound" in e.message.lower() for e in result2.errors)
+
+        bound_error = next(e for e in result2.errors if "bound" in e.message.lower())
+        assert bound_error.location.node_tag == "checker_numeric_ref_processor"
