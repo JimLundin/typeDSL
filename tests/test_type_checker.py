@@ -577,6 +577,488 @@ class TestGenericNodeValidation:
 
 
 # =============================================================================
+# SECTION 7b: Type Parameter Bounds (PEP 695)
+# =============================================================================
+
+
+class TestTypeParameterBounds:
+    """Test type checking with bounded type parameters (PEP 695 syntax).
+
+    PEP 695 introduced the new generic syntax:
+        class Foo[T: Bound]: ...
+
+    The type checker must validate that inferred types satisfy bounds.
+    """
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_bound_satisfied_exactly(self) -> None:
+        """Type parameter bound is satisfied by exact match."""
+
+        class NumericOp[T: int | float](Node[T], tag="tc_bound_exact"):
+            left: Node[T]
+            right: Node[T]
+
+        # T=int satisfies T: int | float
+        NumericOp(left=IntConst(value=1), right=IntConst(value=2))
+        # type_check should return []
+
+        # T=float satisfies T: int | float
+        NumericOp(left=FloatConst(value=1.0), right=FloatConst(value=2.0))
+        # type_check should return []
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_bound_violated(self) -> None:
+        """Type parameter bound is violated."""
+
+        class NumericOp[T: int | float](Node[T], tag="tc_bound_violated"):
+            left: Node[T]
+            right: Node[T]
+
+        # T=str does NOT satisfy T: int | float
+        NumericOp(
+            left=StrConst(text="a"),  # type: ignore[arg-type]
+            right=StrConst(text="b"),  # type: ignore[arg-type]
+        )
+        # type_check should return error:
+        # "NumericOp: type parameter T bound violation - str is not int | float"
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_bound_with_single_type(self) -> None:
+        """Type parameter bound with single type constraint."""
+
+        class StringProcessor[T: str](Node[T], tag="tc_bound_single"):
+            input: Node[T]
+
+        # T=str satisfies T: str
+        StringProcessor(input=StrConst(text="hello"))
+        # type_check should return []
+
+        # T=int violates T: str
+        StringProcessor(input=IntConst(value=1))  # type: ignore[arg-type]
+        # type_check should return error
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_bound_with_none_in_union(self) -> None:
+        """Type parameter bound that includes None."""
+
+        class OptionalValue[T: int | None](Node[T], tag="tc_bound_none"):
+            value: Node[T]
+
+        # Both should satisfy the bound
+        OptionalValue(value=IntConst(value=42))
+        OptionalValue(value=NoneNode())
+        # type_check should return [] for both
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_multiple_bounded_type_params(self) -> None:
+        """Multiple type parameters each with different bounds."""
+
+        class Converter[T: int | float, U: str | bytes](Node[U], tag="tc_multi_bound"):
+            input: Node[T]
+            format: Node[U]
+
+        # T=int satisfies int|float, U=str satisfies str|bytes
+        Converter(input=IntConst(value=1), format=StrConst(text="decimal"))
+        # type_check should return []
+
+        # T=str violates int|float bound
+        Converter(
+            input=StrConst(text="x"),  # type: ignore[arg-type]
+            format=StrConst(text="y"),
+        )
+        # type_check should return error for T bound
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_bound_with_subtype(self) -> None:
+        """Test whether subtypes satisfy bounds (bool is subtype of int)."""
+
+        class IntProcessor[T: int](Node[T], tag="tc_bound_subtype"):
+            value: Node[T]
+
+        # In Python, bool is a subtype of int
+        # Should this satisfy T: int?
+        IntProcessor(value=BoolConst(value=True))
+        # Decision point: strict bound matching or allow subtypes?
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_unbounded_type_param(self) -> None:
+        """Unbounded type parameter accepts any type."""
+
+        class Identity[T](Node[T], tag="tc_unbounded"):
+            value: Node[T]
+
+        # All of these should be valid (T is unbounded)
+        Identity(value=IntConst(value=1))
+        Identity(value=StrConst(text="x"))
+        Identity(value=FloatConst(value=1.0))
+        # type_check should return [] for all
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_bound_inference_from_multiple_fields(self) -> None:
+        """Infer T from multiple fields, then check bound."""
+
+        class BoundedPair[T: int | float](Node[tuple[T, T]], tag="tc_bound_infer"):
+            first: Node[T]
+            second: Node[T]
+
+        # Infer T=int from first, validate second matches, check bound
+        BoundedPair(first=IntConst(value=1), second=IntConst(value=2))
+        # type_check should return []
+
+        # Infer T=str from first - but str violates bound!
+        BoundedPair(
+            first=StrConst(text="a"),  # type: ignore[arg-type]
+            second=StrConst(text="b"),  # type: ignore[arg-type]
+        )
+        # type_check should return bound violation error
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_bound_with_container_type(self) -> None:
+        """Type parameter with bound used in container context."""
+
+        class NumericList[T: int | float](Node[list[T]], tag="tc_bound_container"):
+            items: list[Node[T]]
+
+        # All items return int, T=int satisfies bound
+        NumericList(items=[IntConst(value=1), IntConst(value=2)])
+        # type_check should return []
+
+        # All items return str, T=str violates bound
+        NumericList(
+            items=[
+                StrConst(text="a"),  # type: ignore[list-item]
+                StrConst(text="b"),  # type: ignore[list-item]
+            ],
+        )
+        # type_check should return bound violation error
+
+
+# =============================================================================
+# SECTION 7c: Type Parameter Inference
+# =============================================================================
+
+
+class TestTypeParameterInference:
+    """Test inference of type parameters from field values.
+
+    When a generic node is instantiated, the type checker must infer
+    the concrete type for each type parameter from the provided values.
+    """
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_infer_from_single_field(self) -> None:
+        """Infer T from a single field."""
+
+        class Wrap[T](Node[T], tag="tc_infer_single"):
+            inner: Node[T]
+
+        # T should be inferred as float from the field
+        Wrap(inner=FloatConst(value=1.0))
+        # After inference: T=float
+        # type_check should return []
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_infer_from_first_field_validate_rest(self) -> None:
+        """Infer T from first field, validate remaining fields match."""
+
+        class Triple[T](Node[tuple[T, T, T]], tag="tc_infer_validate"):
+            a: Node[T]
+            b: Node[T]
+            c: Node[T]
+
+        # Infer T=int from 'a', validate b and c match
+        Triple(a=IntConst(value=1), b=IntConst(value=2), c=IntConst(value=3))
+        # type_check should return []
+
+        # Infer T=int from 'a', but 'c' is str - mismatch!
+        Triple(
+            a=IntConst(value=1),
+            b=IntConst(value=2),
+            c=StrConst(text="x"),  # type: ignore[arg-type]
+        )
+        # type_check should return error: T inferred as int but c returns str
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_infer_independent_type_params(self) -> None:
+        """Multiple type parameters inferred independently."""
+
+        class Map[T, U](Node[U], tag="tc_infer_multi"):
+            input: Node[T]
+            output: Node[U]
+
+        # Infer T=int from input, U=str from output
+        Map(input=IntConst(value=1), output=StrConst(text="result"))
+        # type_check should return [] - T and U are independent
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_infer_from_container_elements(self) -> None:
+        """Infer T from elements in a container field."""
+
+        class Aggregate[T](Node[T], tag="tc_infer_container"):
+            values: list[Node[T]]
+
+        # Infer T=int from list elements
+        Aggregate(values=[IntConst(value=1), IntConst(value=2)])
+        # type_check should return []
+
+        # Inconsistent elements - can't unify
+        Aggregate(
+            values=[
+                IntConst(value=1),
+                StrConst(text="x"),  # type: ignore[list-item]
+            ],
+        )
+        # type_check should return error: cannot infer single T
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_infer_with_empty_container(self) -> None:
+        """Empty container provides no information for inference."""
+
+        class Aggregate[T](Node[list[T]], tag="tc_infer_empty"):
+            values: list[Node[T]]
+
+        # Empty list - T cannot be inferred from values
+        Aggregate(values=[])
+        # Options: error (can't infer), or defer checking
+        # type_check behavior TBD
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_infer_from_nested_generic(self) -> None:
+        """Infer T from nested generic position."""
+
+        class Processor[T](Node[list[T]], tag="tc_infer_nested"):
+            mapping: dict[str, Node[T]]
+
+        # Infer T=float from dict values
+        Processor(
+            mapping={
+                "a": FloatConst(value=1.0),
+                "b": FloatConst(value=2.0),
+            },
+        )
+        # type_check should return []
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_type_param_used_only_in_return(self) -> None:
+        """Type parameter appears only in return type, not fields.
+
+        This is an interesting edge case - how do we infer T?
+        """
+
+        class Phantom[T](Node[T], tag="tc_phantom"):
+            # T only appears in Node[T] return type, not in fields
+            label: str
+
+        # T is unconstrained by fields
+        # type_check behavior TBD - error or allow?
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_infer_from_ref_target(self) -> None:
+        """Infer T from the type of referenced node in a Program."""
+
+        class Wrapper[T](Node[T], tag="tc_infer_ref"):
+            inner: Ref[Node[T]]
+
+        Program(
+            root=Ref(id="wrap"),
+            nodes={
+                "value": FloatConst(value=1.0),  # Returns float
+                "wrap": Wrapper(inner=Ref(id="value")),  # T should be inferred as float
+            },
+        )
+        # type_check(prog) should infer T=float and return []
+
+
+# =============================================================================
+# SECTION 7d: Complex Type Parameter Scenarios
+# =============================================================================
+
+
+class TestComplexTypeParameters:
+    """Test complex scenarios involving type parameters."""
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_type_param_in_union_field(self) -> None:
+        """Type parameter used within a union type field."""
+
+        class MaybeProcess[T](Node[T | None], tag="tc_param_union"):
+            input: Node[T] | None
+
+        # T=int inferred, None is also valid
+        MaybeProcess(input=IntConst(value=1))
+        MaybeProcess(input=None)
+        # type_check should return [] for both
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_type_param_in_nested_container(self) -> None:
+        """Type parameter in deeply nested container type."""
+
+        class DeepNest[T](Node[list[list[T]]], tag="tc_deep_nest"):
+            data: list[list[Node[T]]]
+
+        DeepNest(
+            data=[
+                [IntConst(value=1), IntConst(value=2)],
+                [IntConst(value=3), IntConst(value=4)],
+            ],
+        )
+        # type_check should return []
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_type_param_in_dict_key_and_value(self) -> None:
+        """Type parameter used in both dict key and value positions.
+
+        Note: dict keys must be hashable, so T: Hashable might be implicit.
+        """
+
+        class BiMap[T](Node[dict[T, T]], tag="tc_bimap"):
+            forward: dict[str, Node[T]]
+            backward: dict[str, Node[T]]
+
+        BiMap(
+            forward={"a": IntConst(value=1)},
+            backward={"x": IntConst(value=2)},
+        )
+        # type_check should return []
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_same_param_different_container_types(self) -> None:
+        """Same type parameter used in different container types."""
+
+        class MultiContainer[T](Node[T], tag="tc_multi_container"):
+            as_list: list[Node[T]]
+            as_set: set[str]  # Not using T here
+            as_dict_value: dict[str, Node[T]]
+
+        MultiContainer(
+            as_list=[FloatConst(value=1.0)],
+            as_set={"key"},
+            as_dict_value={"a": FloatConst(value=2.0)},
+        )
+        # type_check should return []
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_generic_node_field_with_concrete_type(self) -> None:
+        """Generic node has one field with concrete type, one with T."""
+
+        class Hybrid[T](Node[T], tag="tc_hybrid"):
+            typed: Node[T]  # Uses type parameter
+            fixed: Node[int]  # Always int
+
+        # T inferred as str, fixed must be int
+        Hybrid(typed=StrConst(text="x"), fixed=IntConst(value=1))
+        # type_check should return []
+
+        # T inferred as str, but wrong type for fixed
+        Hybrid(
+            typed=StrConst(text="x"),
+            fixed=StrConst(text="y"),  # type: ignore[arg-type]
+        )
+        # type_check should return error for 'fixed' field
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_bound_references_another_param(self) -> None:
+        """Advanced: one type param's bound references another.
+
+        Note: This is more advanced and may not be supported initially.
+        """
+        # class Related[T, U: T](Node[U]): ...
+        # This would mean U must be a subtype of T
+        # Complex to implement - may skip initially
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_recursive_generic_node(self) -> None:
+        """Generic node that can contain nodes of same generic type."""
+
+        class Tree[T](Node[T], tag="tc_recursive_generic"):
+            value: Node[T]
+            children: list[Child[T]]  # Recursive reference
+
+        # Build a simple tree with T=int
+        Program(
+            root=Ref(id="root"),
+            nodes={
+                "leaf1": Tree(value=IntConst(value=1), children=[]),
+                "leaf2": Tree(value=IntConst(value=2), children=[]),
+                "root": Tree(
+                    value=IntConst(value=0),
+                    children=[Ref(id="leaf1"), Ref(id="leaf2")],
+                ),
+            },
+        )
+        # type_check(prog) should return []
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_generic_with_child_type(self) -> None:
+        """Generic node using Child[T] (union of Node[T] | Ref[Node[T]])."""
+
+        class Flexible[T](Node[T], tag="tc_generic_child"):
+            input: Child[T]
+
+        # Inline node
+        Flexible(input=FloatConst(value=1.0))
+
+        # Via Program with ref
+        Program(
+            root=Ref(id="flex"),
+            nodes={
+                "val": FloatConst(value=2.0),
+                "flex": Flexible(input=Ref(id="val")),
+            },
+        )
+        # type_check for both should return []
+
+
+# =============================================================================
+# SECTION 7e: Type Parameter Error Messages
+# =============================================================================
+
+
+class TestTypeParameterErrors:
+    """Test error message quality for type parameter issues."""
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_error_shows_inferred_type(self) -> None:
+        """Error message should show what T was inferred as."""
+
+        class Pair[T](Node[tuple[T, T]], tag="tc_err_inferred"):
+            first: Node[T]
+            second: Node[T]
+
+        Pair(
+            first=IntConst(value=1),
+            second=StrConst(text="x"),  # type: ignore[arg-type]
+        )
+        # Error should say: "T inferred as int from 'first', but 'second' returns str"
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_error_shows_bound(self) -> None:
+        """Error message should show the violated bound."""
+
+        class Numeric[T: int | float](Node[T], tag="tc_err_bound"):
+            value: Node[T]
+
+        Numeric(value=StrConst(text="x"))  # type: ignore[arg-type]
+        # Error should say: "T bound violation: str does not satisfy int | float"
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_error_for_multiple_type_params(self) -> None:
+        """Error identifies which type parameter has the issue."""
+
+        class TwoParams[T, U](Node[tuple[T, U]], tag="tc_err_which_param"):
+            t_val: Node[T]
+            u_val: Node[U]
+            t_val2: Node[T]
+
+        TwoParams(
+            t_val=IntConst(value=1),
+            u_val=StrConst(text="x"),
+            t_val2=FloatConst(value=2.0),  # type: ignore[arg-type]
+        )
+        # Error should identify T as inconsistent (int vs float), not U
+
+
+# =============================================================================
 # SECTION 8: Any Type Handling
 # =============================================================================
 
