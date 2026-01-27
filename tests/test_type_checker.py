@@ -1094,6 +1094,339 @@ class TestAnyTypeHandling:
 
 
 # =============================================================================
+# SECTION 8b: Specific Node Subclass Type Checking
+# =============================================================================
+
+
+class TestSpecificNodeSubclass:
+    """Test type checking when fields are annotated with specific node subclasses.
+
+    Fields can be annotated with:
+    - Node[T]: Accepts ANY node that returns T
+    - SpecificNode: Accepts only that specific node class (or subclasses)
+    - SpecificNode[T]: Accepts only that specific generic node with type arg T
+
+    The type checker must distinguish between these cases.
+    """
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_specific_subclass_valid(self) -> None:
+        """Valid: Field expects specific subclass, receives that subclass."""
+
+        class Operand(Node[float], tag="tc_operand"):
+            value: float
+
+        class Calculator(Node[float], tag="tc_calc_specific"):
+            # Field requires specifically an Operand, not just any Node[float]
+            left: Operand
+            right: Operand
+
+        Calculator(
+            left=Operand(value=1.0),
+            right=Operand(value=2.0),
+        )
+        # type_check should return []
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_specific_subclass_invalid_different_node(self) -> None:
+        """Invalid: Field expects specific subclass, receives different node."""
+
+        class Operand(Node[float], tag="tc_operand_diff"):
+            value: float
+
+        class OtherFloat(Node[float], tag="tc_other_float"):
+            data: float
+
+        class Calculator(Node[float], tag="tc_calc_diff"):
+            left: Operand  # Specifically requires Operand
+            right: Operand
+
+        # OtherFloat returns float, but is not an Operand!
+        Calculator(
+            left=Operand(value=1.0),
+            right=OtherFloat(data=2.0),  # type: ignore[arg-type]
+        )
+        # type_check should return error:
+        # "Calculator.right: expected Operand, got OtherFloat"
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_specific_subclass_accepts_further_subclass(self) -> None:
+        """Valid: Field expects subclass, receives a further subclass of it."""
+
+        class Expr(Node[float], tag="tc_expr_base"):
+            pass
+
+        class Const(Expr, tag="tc_const_derived"):
+            value: float
+
+        class Consumer(Node[float], tag="tc_consumer_derived"):
+            expr: Expr  # Accepts Expr or any subclass
+
+        # Const is a subclass of Expr, should be accepted
+        Consumer(expr=Const(value=1.0))
+        # type_check should return []
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_generic_subclass_valid(self) -> None:
+        """Valid: Field expects generic subclass with specific type arg."""
+
+        class Wrapper[T](Node[T], tag="tc_wrapper_generic"):
+            inner: Node[T]
+
+        class Consumer(Node[float], tag="tc_consumer_wrapper"):
+            wrapped: Wrapper[float]  # Specifically Wrapper[float]
+
+        Consumer(wrapped=Wrapper(inner=FloatConst(value=1.0)))
+        # type_check should return []
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_generic_subclass_wrong_type_arg(self) -> None:
+        """Invalid: Field expects Wrapper[float], receives Wrapper[int]."""
+
+        class Wrapper[T](Node[T], tag="tc_wrapper_wrong_arg"):
+            inner: Node[T]
+
+        class Consumer(Node[float], tag="tc_consumer_wrong_wrapper"):
+            wrapped: Wrapper[float]  # Specifically Wrapper[float]
+
+        # Wrapper[int] is not Wrapper[float]!
+        Consumer(
+            wrapped=Wrapper(inner=IntConst(value=1)),  # type: ignore[arg-type]
+        )
+        # type_check should return error:
+        # "Consumer.wrapped: expected Wrapper[float], got Wrapper[int]"
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_generic_subclass_wrong_class(self) -> None:
+        """Invalid: Field expects Wrapper[float], receives different Node[float]."""
+
+        class Wrapper[T](Node[T], tag="tc_wrapper_class"):
+            inner: Node[T]
+
+        class OtherWrapper[T](Node[T], tag="tc_other_wrapper"):
+            data: Node[T]
+
+        class Consumer(Node[float], tag="tc_consumer_class"):
+            wrapped: Wrapper[float]
+
+        # OtherWrapper[float] is Node[float] but not Wrapper[float]
+        Consumer(
+            wrapped=OtherWrapper(data=FloatConst(value=1.0)),  # type: ignore[arg-type]
+        )
+        # type_check should return error
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_mixed_specific_and_generic_fields(self) -> None:
+        """Test node with both specific subclass and generic Node fields."""
+
+        class Const(Node[float], tag="tc_const_mixed"):
+            value: float
+
+        class Var(Node[float], tag="tc_var_mixed"):
+            name: str
+
+        class BinOp(Node[float], tag="tc_binop_mixed"):
+            # left must be specifically Const
+            left: Const
+            # right can be any Node[float]
+            right: Node[float]
+
+        # Valid: left is Const, right is any Node[float]
+        BinOp(left=Const(value=1.0), right=Var(name="x"))
+        # type_check should return []
+
+        # Invalid: left is not Const
+        BinOp(
+            left=Var(name="y"),  # type: ignore[arg-type]
+            right=Const(value=2.0),
+        )
+        # type_check should return error for 'left'
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_specific_subclass_with_type_param_inference(self) -> None:
+        """Infer T from specific subclass annotation."""
+
+        class Box[T](Node[T], tag="tc_box_infer"):
+            content: Node[T]
+
+        class Processor[T](Node[T], tag="tc_processor_infer"):
+            # T should be inferred from Box[T]
+            input: Box[T]
+            output: Node[T]
+
+        # T inferred as float from Box[float]
+        Processor(
+            input=Box(content=FloatConst(value=1.0)),
+            output=FloatConst(value=2.0),
+        )
+        # type_check should return []
+
+        # T inferred as float from input, but output returns int
+        Processor(
+            input=Box(content=FloatConst(value=1.0)),
+            output=IntConst(value=2),  # type: ignore[arg-type]
+        )
+        # type_check should return error: T inconsistent
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_list_of_specific_subclass(self) -> None:
+        """Test list containing specific node subclass."""
+
+        class Const(Node[int], tag="tc_const_list_specific"):
+            value: int
+
+        class Aggregator(Node[int], tag="tc_agg_specific"):
+            # Must be list of Const, not just list of Node[int]
+            values: list[Const]
+
+        Aggregator(values=[Const(value=1), Const(value=2)])
+        # type_check should return []
+
+        Aggregator(values=[Const(value=1), IntConst(value=2)])  # type: ignore[list-item]
+        # type_check should return error: IntConst is not Const
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_dict_of_specific_subclass(self) -> None:
+        """Test dict with specific node subclass values."""
+
+        class Expr(Node[float], tag="tc_expr_dict"):
+            pass
+
+        class Const(Expr, tag="tc_const_dict_specific"):
+            value: float
+
+        class Registry(Node[float], tag="tc_registry_specific"):
+            entries: dict[str, Const]  # Values must be Const
+
+        Registry(entries={"a": Const(value=1.0), "b": Const(value=2.0)})
+        # type_check should return []
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_specific_subclass_in_union(self) -> None:
+        """Test union of specific subclasses."""
+
+        class Const(Node[float], tag="tc_const_union_specific"):
+            value: float
+
+        class Var(Node[float], tag="tc_var_union_specific"):
+            name: str
+
+        class OtherNode(Node[float], tag="tc_other_union"):
+            data: float
+
+        class Consumer(Node[float], tag="tc_consumer_union_specific"):
+            # Accepts Const OR Var, but not other Node[float]
+            input: Const | Var
+
+        # Valid: Const is in union
+        Consumer(input=Const(value=1.0))
+        # type_check should return []
+
+        # Valid: Var is in union
+        Consumer(input=Var(name="x"))
+        # type_check should return []
+
+        # Invalid: OtherNode is Node[float] but not Const or Var
+        Consumer(input=OtherNode(data=1.0))  # type: ignore[arg-type]
+        # type_check should return error
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_specific_generic_subclass_with_bound(self) -> None:
+        """Specific generic subclass where type param has bound."""
+
+        class NumericBox[T: int | float](Node[T], tag="tc_numbox"):
+            value: T
+
+        class Processor(Node[float], tag="tc_proc_numbox"):
+            box: NumericBox[float]  # Specifically NumericBox[float]
+
+        Processor(box=NumericBox(value=1.0))
+        # type_check should return []
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_ref_to_specific_subclass(self) -> None:
+        """Test Ref that must point to specific subclass."""
+
+        class Const(Node[float], tag="tc_const_ref_specific"):
+            value: float
+
+        class Consumer(Node[float], tag="tc_consumer_ref_specific"):
+            input: Ref[Const]  # Must reference a Const, not just any Node[float]
+
+        # Valid: ref points to Const
+        Program(
+            root=Ref(id="consumer"),
+            nodes={
+                "c": Const(value=1.0),
+                "consumer": Consumer(input=Ref(id="c")),
+            },
+        )
+        # type_check(prog_valid) should return []
+
+        # Invalid: ref points to FloatConst (different class)
+        Program(
+            root=Ref(id="consumer"),
+            nodes={
+                "f": FloatConst(value=1.0),  # Not a Const!
+                "consumer": Consumer(input=Ref(id="f")),
+            },
+        )
+        # type_check(prog_invalid) should return error
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_child_of_specific_subclass(self) -> None:
+        """Test Child[...] that must be specific subclass."""
+        # Note: Child[T] = Node[T] | Ref[Node[T]]
+        # But what about Child alias for specific subclass?
+        # This might need special handling: SpecificNode | Ref[SpecificNode]
+
+        class Const(Node[float], tag="tc_const_child_specific"):
+            value: float
+
+        class Consumer(Node[float], tag="tc_consumer_child_specific"):
+            # Accept inline Const or Ref to Const
+            input: Const | Ref[Const]
+
+        # Valid: inline Const
+        Consumer(input=Const(value=1.0))
+
+        # Valid: ref to Const (in program context)
+        Program(
+            root=Ref(id="consumer"),
+            nodes={
+                "c": Const(value=1.0),
+                "consumer": Consumer(input=Ref(id="c")),
+            },
+        )
+        # type_check should return [] for both
+
+    @pytest.mark.skip(reason="Type checker not implemented")
+    def test_nested_specific_subclass_requirements(self) -> None:
+        """Test deeply nested specific subclass requirements."""
+
+        class Inner(Node[int], tag="tc_inner_nested"):
+            value: int
+
+        class Middle(Node[int], tag="tc_middle_nested"):
+            inner: Inner  # Must be Inner
+
+        class Outer(Node[int], tag="tc_outer_nested"):
+            middle: Middle  # Must be Middle
+
+        # Valid: proper nesting
+        Outer(middle=Middle(inner=Inner(value=1)))
+        # type_check should return []
+
+        # Invalid at leaf level
+        Outer(
+            middle=Middle(
+                inner=IntConst(value=1),  # type: ignore[arg-type]
+            ),
+        )
+        # type_check should return error for Middle.inner
+
+
+# =============================================================================
 # SECTION 9: Container Types with Nodes
 # =============================================================================
 
