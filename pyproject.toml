@@ -94,3 +94,20 @@ ignore = [
     "ANN401",   # serialization handles arbitrary values
     "TRY004",   # ValueError is more appropriate for invalid data format
 ]
+"src/typedsl/type_checker.py" = [
+    "ANN401",   # type checking handles arbitrary type expressions
+    "C901",     # type dispatch functions are inherently complex
+    "PLR0911",  # multiple returns needed for type dispatch
+    "PLR0912",  # multiple branches needed for type dispatch
+    "PLR0913",  # helper functions need multiple parameters
+    "PLR0915",  # complex type inference function needs many statements
+    "PLR2004",  # magic values for tuple/dict args checking (2)
+    "ARG001",   # some parameters used for API consistency
+    "BLE001",   # broad exception catching needed for get_type_hints failures
+    "SIM102",   # nested ifs for clarity in type checking logic
+    "ERA001",   # section comments describe type handling
+    "D102",     # internal helper functions
+    "D105",     # __str__ method is self-explanatory
+    "E501",     # some format strings need longer lines
+    "B007",     # loop variables for clarity
+]
