@@ -71,7 +71,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 # Tests: allow asserts, magic values, code-like comments, naive datetimes, missing docstrings in mocks
-"tests/**" = ["S101", "PLR2004", "ERA001", "DTZ001", "D102"]
+"tests/**" = ["S101", "PLR2004", "ERA001", "DTZ001", "D102", "A004"]
 # Examples: demo code, allow missing docstrings, asserts, magic values, implicit namespace
 "examples/**" = ["D100", "D101", "D102", "D103", "D107", "S101", "PLR2004", "INP001", "ANN401"]
 # Type manipulation code legitimately requires Any for runtime type introspection
@@ -93,4 +93,15 @@ ignore = [
 "src/typedsl/formats/*.py" = [
     "ANN401",   # serialization handles arbitrary values
     "TRY004",   # ValueError is more appropriate for invalid data format
+]
+# Type checker: pattern matching functions require complexity
+"src/typedsl/typechecker/*.py" = [
+    "A001",     # TypeError shadows builtin intentionally
+    "A004",     # TypeError import shadows builtin intentionally
+    "C901",     # pattern matching functions are inherently complex
+    "PLR0911",  # multiple returns needed for pattern matching
+    "PLR0912",  # multiple branches needed for pattern matching
+    "D105",     # __str__ docstring not needed for simple methods
+    "D107",     # __init__ docstring not needed for simple methods
+    "TRY300",   # return in try block is fine for simple error handling
 ]
