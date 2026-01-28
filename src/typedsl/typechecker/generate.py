@@ -1,9 +1,18 @@
-"""Constraint generation for type checking Programs and Nodes."""
+"""Constraint generation for type checking Programs and Nodes.
+
+This module implements a two-phase approach to constraint generation:
+
+1. Schema extraction (from CLASS): Extract type parameters and their
+   structural relationships from the node class definition.
+
+2. Instance binding (from INSTANCE): Generate constraints by matching
+   actual values against the schema's expected types.
+"""
 
 from __future__ import annotations
 
 import types
-from dataclasses import fields
+from dataclasses import dataclass, fields
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -31,6 +40,33 @@ if TYPE_CHECKING:
     from typedsl.ast import Program
 
 _DICT_TYPE_ARITY = 2
+
+
+@dataclass(frozen=True)
+class FieldSchema:
+    """Schema for a single field."""
+
+    name: str
+    expected_type: TExp
+    python_type: Any  # Original Python type annotation
+
+
+@dataclass(frozen=True)
+class NodeSchema:
+    """Type schema extracted from a node class.
+
+    This represents the type structure of a node class, independent of
+    any particular instance. It captures:
+    - Type variables declared on the class
+    - Structural constraints between type variables (e.g., T == list[V])
+    - Expected types for each field
+    - The return type of the node
+    """
+
+    type_vars: dict[str, TVar]
+    structural_constraints: tuple[Constraint, ...]
+    fields: tuple[FieldSchema, ...]
+    return_type: TExp
 
 
 def _resolve_type_alias(py_type: Any) -> Any:
@@ -94,12 +130,292 @@ def _substitute_type_params(py_type: Any, subs: dict[Any, Any]) -> Any:
     return py_type
 
 
-class NodeConstraintGenerator:
-    """Generates type constraints for a single Node.
+class _SchemaExtractor:
+    """Helper class for extracting node schemas."""
 
-    This class is stateless in the sense that it uses the node's location
-    to generate unique type variable names rather than a shared counter.
-    This makes each node's type checking self-contained and independent.
+    def __init__(self, loc: Location) -> None:
+        self._loc = loc
+        self.type_vars: dict[str, TVar] = {}
+
+    def fresh_var(self, name: str) -> TVar:
+        """Create a location-unique type variable."""
+        return TVar(f"{name}@{self._loc.path}")
+
+    def python_type_to_texp(self, py_type: Any) -> TExp:
+        """Convert Python type to TExp, using existing type vars."""
+        py_type = _resolve_type_alias(py_type)
+
+        if py_type is None or py_type is type(None):
+            return TCon(type(None), ())
+
+        if isinstance(py_type, TypingTypeVar):
+            name = py_type.__name__
+            if name in self.type_vars:
+                return self.type_vars[name]
+            fresh = self.fresh_var(name)
+            self.type_vars[name] = fresh
+            return fresh
+
+        origin = get_origin(py_type)
+        args = get_args(py_type)
+
+        if origin is Union or isinstance(py_type, types.UnionType):
+            return TTop()
+
+        if origin is Ref:
+            if args:
+                target_type = self.python_type_to_texp(args[0])
+                return TCon(Ref, (target_type,))
+            return TCon(Ref, ())
+
+        if origin is not None and isinstance(origin, type) and issubclass(origin, Node):
+            if args:
+                converted_args = tuple(self.python_type_to_texp(a) for a in args)
+                return TCon(origin, converted_args)
+            return TCon(origin, ())
+
+        if origin is not None:
+            converted_args = tuple(self.python_type_to_texp(a) for a in args)
+            return TCon(origin, converted_args)
+
+        if isinstance(py_type, type):
+            return TCon(py_type, ())
+
+        return TTop()
+
+
+def _extract_type_params(
+    node_cls: type[Node[Any]],
+    extractor: _SchemaExtractor,
+    loc: Location,
+) -> list[Constraint]:
+    """Extract type parameters and their bound constraints."""
+    constraints: list[Constraint] = []
+
+    if hasattr(node_cls, "__type_params__"):
+        for param in node_cls.__type_params__:
+            param_name = param.__name__
+            fresh = extractor.fresh_var(param_name)
+            extractor.type_vars[param_name] = fresh
+
+            # Extract bound constraints (e.g., T: list[V] produces T <: list[V])
+            bound = getattr(param, "__bound__", None)
+            if bound is not None:
+                bound_type = extractor.python_type_to_texp(bound)
+                constraints.append(SubConstraint(fresh, bound_type, loc))
+
+    return constraints
+
+
+def _extract_field_schemas(
+    node_cls: type[Node[Any]],
+    extractor: _SchemaExtractor,
+) -> list[FieldSchema]:
+    """Extract field schemas from node class."""
+    hints = get_type_hints(node_cls)
+    field_schemas: list[FieldSchema] = []
+
+    for f in fields(node_cls):
+        if f.name.startswith("_"):
+            continue
+        declared_type = hints.get(f.name)
+        if declared_type is None:
+            continue
+        expected = extractor.python_type_to_texp(declared_type)
+        field_schemas.append(FieldSchema(f.name, expected, declared_type))
+
+    return field_schemas
+
+
+def _extract_return_type(
+    node_cls: type[Node[Any]],
+    extractor: _SchemaExtractor,
+) -> TExp:
+    """Extract return type from node class."""
+    for base in getattr(node_cls, "__orig_bases__", ()):
+        origin = get_origin(base)
+        if origin is None:
+            continue
+        if isinstance(origin, type) and issubclass(origin, Node):
+            args = get_args(base)
+            if args:
+                ret = args[0]
+                if isinstance(ret, TypingTypeVar):
+                    name = ret.__name__
+                    if name in extractor.type_vars:
+                        return extractor.type_vars[name]
+                else:
+                    return extractor.python_type_to_texp(ret)
+            break
+
+    return TTop()
+
+
+def extract_schema(node_cls: type[Node[Any]], loc: Location) -> NodeSchema:
+    """Extract type schema from a node class (Phase 1).
+
+    This function analyzes the class definition to extract:
+    - Fresh type variables for each type parameter
+    - Structural constraints from type parameter bounds
+    - Expected types for each field
+    - The return type
+
+    This is independent of any instance - it only looks at the class.
+
+    Args:
+        node_cls: The node class to extract schema from
+        loc: Location for generating unique type variable names
+
+    Returns:
+        NodeSchema containing type structure information
+
+    """
+    extractor = _SchemaExtractor(loc)
+
+    # Phase 1a: Extract type parameters and their constraints
+    structural_constraints = _extract_type_params(node_cls, extractor, loc)
+
+    # Phase 1b: Extract field schemas
+    field_schemas = _extract_field_schemas(node_cls, extractor)
+
+    # Phase 1c: Extract return type
+    return_type = _extract_return_type(node_cls, extractor)
+
+    return NodeSchema(
+        type_vars=extractor.type_vars,
+        structural_constraints=tuple(structural_constraints),
+        fields=tuple(field_schemas),
+        return_type=return_type,
+    )
+
+
+def infer_value_type(value: Any, expected: TExp, loc: Location) -> TExp:
+    """Infer the TExp type from a runtime value (Phase 2 helper).
+
+    This is a pure function that infers type from value structure.
+    For simple values, it returns the concrete type.
+    For containers, it infers element types recursively.
+
+    Note: For Node and Ref values, this returns a placeholder - the actual
+    constraint generation for these requires program context and is handled
+    separately by NodeConstraintGenerator.
+
+    Args:
+        value: The runtime value to infer type from
+        expected: The expected type (used for empty containers)
+        loc: Location for generating unique type variable names
+
+    Returns:
+        The inferred TExp type
+
+    """
+    if value is None:
+        return TCon(type(None), ())
+
+    # For Node/Ref, return placeholder - needs special handling
+    if isinstance(value, (Node, Ref)):
+        return TTop()  # Placeholder - handled by NodeConstraintGenerator
+
+    if isinstance(value, list):
+        if not value:
+            if isinstance(expected, TCon) and expected.args:
+                return expected
+            return TCon(list, (TVar(f"ListElem@{loc.path}"),))
+        elem_type = infer_value_type(value[0], TTop(), loc.index(0))
+        return TCon(list, (elem_type,))
+
+    if isinstance(value, dict):
+        if not value:
+            has_key_value_types = (
+                isinstance(expected, TCon) and len(expected.args) >= _DICT_TYPE_ARITY
+            )
+            if has_key_value_types:
+                return expected
+            return TCon(
+                dict,
+                (TVar(f"DictKey@{loc.path}"), TVar(f"DictVal@{loc.path}")),
+            )
+        k, v = next(iter(value.items()))
+        key_type = infer_value_type(k, TTop(), loc.child("key"))
+        val_type = infer_value_type(v, TTop(), loc.child("val"))
+        return TCon(dict, (key_type, val_type))
+
+    if isinstance(value, set):
+        if not value:
+            if isinstance(expected, TCon) and expected.args:
+                return expected
+            return TCon(set, (TVar(f"SetElem@{loc.path}"),))
+        elem = next(iter(value))
+        elem_type = infer_value_type(elem, TTop(), loc.child("elem"))
+        return TCon(set, (elem_type,))
+
+    if isinstance(value, tuple):
+        elem_types = tuple(
+            infer_value_type(v, TTop(), loc.index(i)) for i, v in enumerate(value)
+        )
+        return TCon(tuple, elem_types)
+
+    return TCon(type(value), ())
+
+
+def bind_instance(
+    schema: NodeSchema,
+    node: Node[Any],
+    loc: Location,
+) -> list[Constraint]:
+    """Generate binding constraints from instance values (Phase 2).
+
+    This function compares actual values against the schema's expected types
+    and generates constraints that will bind type variables to concrete types.
+
+    For example, if schema expects field `values: T` and the instance has
+    `values=[1,2,3]`, this generates `T <: list[int]` which binds T.
+
+    Note: This only handles primitive fields. Node/Ref fields require
+    program context and are handled separately.
+
+    Args:
+        schema: The NodeSchema extracted from the class
+        node: The node instance
+        loc: Location for constraint generation
+
+    Returns:
+        List of binding constraints
+
+    """
+    constraints: list[Constraint] = []
+
+    for field_schema in schema.fields:
+        field_value = getattr(node, field_schema.name)
+        field_loc = loc.child(field_schema.name)
+
+        # Skip Node/Ref - handled with program context
+        if isinstance(field_value, (Node, Ref)):
+            continue
+
+        # For primitive/container fields, infer actual type and constrain
+        expected = field_schema.expected_type
+        actual_type = infer_value_type(field_value, expected, field_loc)
+
+        # Skip if actual type is placeholder (Node/Ref in container)
+        if isinstance(actual_type, TTop):
+            continue
+
+        constraints.append(
+            SubConstraint(actual_type, field_schema.expected_type, field_loc),
+        )
+
+    return constraints
+
+
+class NodeConstraintGenerator:
+    """Generates type constraints for a single Node using two-phase approach.
+
+    Phase 1: Extract schema from the node CLASS (type vars, structural constraints)
+    Phase 2: Bind instance VALUES to generate binding constraints
+
+    This class handles Node/Ref fields specially since they require program context.
+    Primitive/container fields use the pure bind_instance function.
     """
 
     def __init__(
@@ -119,8 +435,8 @@ class NodeConstraintGenerator:
         self._loc = loc
         self._program = program
         self._return_type_cache = return_type_cache
-        self._type_param_map: dict[str, TVar] = {}
         self._constraints: list[Constraint] = []
+        self._schema: NodeSchema | None = None
 
     def fresh_var(self, base_name: str) -> TVar:
         """Create a type variable unique to this node location."""
@@ -132,45 +448,47 @@ class NodeConstraintGenerator:
         self._constraints.append(constraint)
 
     def generate(self, node: Node[Any]) -> tuple[list[Constraint], TExp]:
-        """Generate constraints for the node.
+        """Generate constraints for the node using two-phase approach.
+
+        Phase 1: Extract schema from CLASS (type vars, structural constraints)
+        Phase 2: Generate binding constraints from INSTANCE values
 
         Returns:
             A tuple of (constraints, return_type)
 
         """
         node_cls = type(node)
-        hints = get_type_hints(node_cls)
 
-        # Create fresh type variables for generic type parameters
-        if hasattr(node_cls, "__type_params__"):
-            for param in node_cls.__type_params__:
-                fresh = self.fresh_var(param.__name__)
-                self._type_param_map[param.__name__] = fresh
+        # Phase 1: Extract schema from the class
+        self._schema = extract_schema(node_cls, self._loc)
 
-        # Generate constraints for each field
-        for f in fields(node_cls):
-            if f.name.startswith("_"):
-                continue
+        # Add structural constraints from schema
+        self._constraints.extend(self._schema.structural_constraints)
 
-            field_loc = self._loc.child(f.name)
-            field_value = getattr(node, f.name)
-            declared_type = hints.get(f.name)
+        # Phase 2: Generate binding constraints from instance
+        # First, handle primitive/container fields with bind_instance
+        binding_constraints = bind_instance(self._schema, node, self._loc)
+        self._constraints.extend(binding_constraints)
 
-            if declared_type is None:
-                continue
+        # Then, handle Node/Ref fields (requires program context)
+        for field_schema in self._schema.fields:
+            field_value = getattr(node, field_schema.name)
+            if isinstance(field_value, (Node, Ref)):
+                self._generate_child_constraint(
+                    field_value,
+                    field_schema.python_type,
+                    self._loc.child(field_schema.name),
+                )
 
-            self._generate_field_constraint(field_value, declared_type, field_loc)
+        return self._constraints, self._schema.return_type
 
-        return_type = self._get_return_type(node_cls)
-        return self._constraints, return_type
-
-    def _generate_field_constraint(
+    def _generate_child_constraint(
         self,
-        value: Any,
+        value: Node[Any] | Ref[Any],
         declared_type: Any,
         loc: Location,
     ) -> None:
-        """Generate constraints for a field value against its declared type."""
+        """Generate constraints for Node/Ref field values."""
         # Resolve type aliases like Child[T] to their underlying types
         resolved_type = _resolve_type_alias(declared_type)
 
@@ -188,10 +506,10 @@ class NodeConstraintGenerator:
             self._generate_node_field_constraint(value, origin, args, loc)
         elif is_node_field and isinstance(value, Ref):
             self._generate_ref_field_constraint(value, origin, args, loc)
-        else:
-            expected_type = self._python_type_to_type(declared_type)
-            actual_type = self._infer_value_type(value, expected_type, loc)
-            self._add(SubConstraint(actual_type, expected_type, loc))
+        elif isinstance(value, Node):
+            self._generate_node_field_constraint(value, Node, (), loc)
+        elif isinstance(value, Ref):
+            self._generate_ref_field_constraint(value, Node, (), loc)
 
     def _generate_union_field_constraint(
         self,
@@ -334,11 +652,11 @@ class NodeConstraintGenerator:
 
         if isinstance(py_type, TypingTypeVar):
             name = py_type.__name__
-            if name in self._type_param_map:
-                return self._type_param_map[name]
-            fresh = self.fresh_var(name)
-            self._type_param_map[name] = fresh
-            return fresh
+            # Use type vars from schema if available
+            if self._schema and name in self._schema.type_vars:
+                return self._schema.type_vars[name]
+            # Fallback to fresh var
+            return self.fresh_var(name)
 
         origin = get_origin(py_type)
         args = get_args(py_type)
@@ -432,24 +750,6 @@ class NodeConstraintGenerator:
             return TCon(tuple, elem_types)
 
         return TCon(type(value), ())
-
-    def _get_return_type(self, node_cls: type[Node[Any]]) -> TExp:
-        """Get the return type of a node class."""
-        for base in getattr(node_cls, "__orig_bases__", ()):
-            origin = get_origin(base)
-            if origin is None:
-                continue
-            if isinstance(origin, type) and issubclass(origin, Node):
-                args = get_args(base)
-                if args:
-                    return_type = args[0]
-                    if isinstance(return_type, TypingTypeVar):
-                        name = return_type.__name__
-                        if name in self._type_param_map:
-                            return self._type_param_map[name]
-                    return self._python_type_to_type(return_type)
-
-        return TTop()
 
 
 class ConstraintGenerator:
