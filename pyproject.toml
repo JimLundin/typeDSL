@@ -94,3 +94,14 @@ ignore = [
     "ANN401",   # serialization handles arbitrary values
     "TRY004",   # ValueError is more appropriate for invalid data format
 ]
+# Type checker requires Any for runtime value inspection and dispatch functions
+"src/typedsl/typecheck.py" = [
+    "ANN401",   # Any required for checking arbitrary runtime values
+    "C901",     # type dispatch functions are naturally complex
+    "PLR0911",  # multiple returns needed for type dispatch
+    "PLR0912",  # multiple branches needed for type dispatch
+    "PLR0913",  # helper functions need multiple parameters
+    "PLR0915",  # large dispatch functions need many statements
+    "D105",     # __str__ methods are self-explanatory
+    "SLF001",   # module-level functions accessing TypeChecker internals is intentional
+]
