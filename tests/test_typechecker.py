@@ -8,10 +8,12 @@ from typedsl.typechecker import (
     ConstraintGenerator,
     EqConstraint,
     Location,
+    NodeConstraintGenerator,
     Solver,
     SubConstraint,
     TBot,
     TCon,
+    TExp,
     TTop,
     TVar,
     TypeError,
@@ -595,18 +597,20 @@ class RefNode(Node[int], tag="tc_refnode"):
 class TestConstraintGenerator:
     """Tests for the ConstraintGenerator class."""
 
-    def test_fresh_var_generates_unique_names(self) -> None:
-        """Fresh variables have unique names."""
-        # Need a program to create a generator
+    def test_fresh_var_uses_location_based_names(self) -> None:
+        """Fresh variables use location-based names for uniqueness."""
         prog = Program(root=Literal(value=0))
-        gen = ConstraintGenerator(prog)
-        v1 = gen.fresh_var("T")
-        v2 = gen.fresh_var("T")
-        v3 = gen.fresh_var("U")
+        cache: dict[str, TExp] = {}
 
-        assert v1.name == "T$0"
-        assert v2.name == "T$1"
-        assert v3.name == "U$2"
+        # Different locations produce different type variable names
+        gen1 = NodeConstraintGenerator(Location("root"), prog, cache)
+        gen2 = NodeConstraintGenerator(Location("nodes").index("x"), prog, cache)
+
+        v1 = gen1.fresh_var("T")
+        v2 = gen2.fresh_var("T")
+
+        assert v1.name == "T@root"
+        assert v2.name == "T@nodes['x']"
         assert v1 != v2
 
     def test_simple_node_generates_constraints(self) -> None:

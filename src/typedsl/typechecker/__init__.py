@@ -14,6 +14,7 @@ from typedsl.typechecker.core import (
 )
 from typedsl.typechecker.generate import (
     ConstraintGenerator,
+    NodeConstraintGenerator,
     generate_constraints,
 )
 from typedsl.typechecker.operations import (
@@ -37,6 +38,7 @@ __all__ = [
     "ConstraintGenerator",
     "EqConstraint",
     "Location",
+    "NodeConstraintGenerator",
     "Solver",
     "SubConstraint",
     # Core types

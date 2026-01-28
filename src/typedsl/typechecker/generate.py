@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import itertools
 import types
 from dataclasses import fields
 from typing import (
@@ -95,58 +94,65 @@ def _substitute_type_params(py_type: Any, subs: dict[Any, Any]) -> Any:
     return py_type
 
 
-class ConstraintGenerator:
-    """Generates type constraints from Programs and Nodes."""
+class NodeConstraintGenerator:
+    """Generates type constraints for a single Node.
 
-    def __init__(self, program: Program) -> None:
+    This class is stateless in the sense that it uses the node's location
+    to generate unique type variable names rather than a shared counter.
+    This makes each node's type checking self-contained and independent.
+    """
+
+    def __init__(
+        self,
+        loc: Location,
+        program: Program,
+        return_type_cache: dict[str, TExp],
+    ) -> None:
+        """Initialize the generator for a specific node location.
+
+        Args:
+            loc: The location of the node in the program
+            program: The program (for resolving refs)
+            return_type_cache: Shared cache of node return types
+
+        """
+        self._loc = loc
         self._program = program
-        self._counter = itertools.count()
-        self._constraints: list[Constraint] = []
-        self._node_return_types: dict[str, TExp] = {}
+        self._return_type_cache = return_type_cache
         self._type_param_map: dict[str, TVar] = {}
+        self._constraints: list[Constraint] = []
 
     def fresh_var(self, base_name: str) -> TVar:
-        """Create a fresh type variable with a unique name."""
-        unique_name = f"{base_name}${next(self._counter)}"
+        """Create a type variable unique to this node location."""
+        unique_name = f"{base_name}@{self._loc.path}"
         return TVar(unique_name)
 
-    def add(self, constraint: Constraint) -> None:
+    def _add(self, constraint: Constraint) -> None:
         """Add a constraint to the list."""
         self._constraints.append(constraint)
 
-    def generate(self) -> list[Constraint]:
-        """Generate constraints for the program."""
-        nodes_loc = Location("nodes")
+    def generate(self, node: Node[Any]) -> tuple[list[Constraint], TExp]:
+        """Generate constraints for the node.
 
-        for node_id, node in self._program.nodes.items():
-            node_loc = nodes_loc.index(node_id)
-            return_type = self._generate_node(node, node_loc)
-            self._node_return_types[node_id] = return_type
+        Returns:
+            A tuple of (constraints, return_type)
 
-        root_loc = Location("root")
-        root_node = self._program.get_root_node()
-        self._generate_node(root_node, root_loc)
-
-        return self._constraints
-
-    def _generate_node(self, node: Node[Any], loc: Location) -> TExp:
-        """Generate constraints for a single node and return its inferred type."""
-        parent_map = self._type_param_map
-        self._type_param_map = {}
-
+        """
         node_cls = type(node)
         hints = get_type_hints(node_cls)
 
+        # Create fresh type variables for generic type parameters
         if hasattr(node_cls, "__type_params__"):
             for param in node_cls.__type_params__:
                 fresh = self.fresh_var(param.__name__)
                 self._type_param_map[param.__name__] = fresh
 
+        # Generate constraints for each field
         for f in fields(node_cls):
             if f.name.startswith("_"):
                 continue
 
-            field_loc = loc.child(f.name)
+            field_loc = self._loc.child(f.name)
             field_value = getattr(node, f.name)
             declared_type = hints.get(f.name)
 
@@ -155,10 +161,8 @@ class ConstraintGenerator:
 
             self._generate_field_constraint(field_value, declared_type, field_loc)
 
-        result = self._get_return_type(node_cls)
-
-        self._type_param_map = parent_map
-        return result
+        return_type = self._get_return_type(node_cls)
+        return self._constraints, return_type
 
     def _generate_field_constraint(
         self,
@@ -187,7 +191,7 @@ class ConstraintGenerator:
         else:
             expected_type = self._python_type_to_type(declared_type)
             actual_type = self._infer_value_type(value, expected_type, loc)
-            self.add(SubConstraint(actual_type, expected_type, loc))
+            self._add(SubConstraint(actual_type, expected_type, loc))
 
     def _generate_union_field_constraint(
         self,
@@ -236,10 +240,7 @@ class ConstraintGenerator:
                         inner_args = get_args(inner)
                         if (
                             inner_origin is not None
-                            and isinstance(
-                                inner_origin,
-                                type,
-                            )
+                            and isinstance(inner_origin, type)
                             and issubclass(inner_origin, Node)
                         ):
                             self._generate_ref_field_constraint(
@@ -259,7 +260,7 @@ class ConstraintGenerator:
         # Fall back to generic constraint if no matching member found
         expected_type = self._python_type_to_type(union_type)
         actual_type = self._infer_value_type(value, expected_type, loc)
-        self.add(SubConstraint(actual_type, expected_type, loc))
+        self._add(SubConstraint(actual_type, expected_type, loc))
 
     def _generate_node_field_constraint(
         self,
@@ -269,16 +270,19 @@ class ConstraintGenerator:
         loc: Location,
     ) -> None:
         """Generate constraints for a Node value in a node field."""
-        actual_return_type = self._generate_node(value, loc)
+        # Generate constraints for the nested node
+        child_gen = NodeConstraintGenerator(loc, self._program, self._return_type_cache)
+        child_constraints, actual_return_type = child_gen.generate(value)
+        self._constraints.extend(child_constraints)
 
         if args:
             expected_return_type = self._python_type_to_type(args[0])
-            self.add(SubConstraint(actual_return_type, expected_return_type, loc))
+            self._add(SubConstraint(actual_return_type, expected_return_type, loc))
 
         if expected_origin is not Node:
             actual_cls = type(value)
             if not issubclass(actual_cls, expected_origin):
-                self.add(
+                self._add(
                     SubConstraint(TCon(actual_cls, ()), TCon(expected_origin, ()), loc),
                 )
 
@@ -293,24 +297,30 @@ class ConstraintGenerator:
         ref_id = ref.id
 
         # Check cache first, otherwise resolve and generate constraints
-        if ref_id in self._node_return_types:
-            actual_return_type = self._node_return_types[ref_id]
+        if ref_id in self._return_type_cache:
+            actual_return_type = self._return_type_cache[ref_id]
         else:
             ref_loc = Location("nodes").index(ref_id)
             resolved_node = self._program.resolve(ref)
-            actual_return_type = self._generate_node(resolved_node, ref_loc)
-            self._node_return_types[ref_id] = actual_return_type
+            child_gen = NodeConstraintGenerator(
+                ref_loc,
+                self._program,
+                self._return_type_cache,
+            )
+            child_constraints, actual_return_type = child_gen.generate(resolved_node)
+            self._constraints.extend(child_constraints)
+            self._return_type_cache[ref_id] = actual_return_type
 
         if args:
             expected_return_type = self._python_type_to_type(args[0])
-            self.add(SubConstraint(actual_return_type, expected_return_type, loc))
+            self._add(SubConstraint(actual_return_type, expected_return_type, loc))
 
         # Check if resolved node class matches expected origin
         if expected_origin is not Node:
             resolved_node = self._program.resolve(ref)
             actual_cls = type(resolved_node)
             if not issubclass(actual_cls, expected_origin):
-                self.add(
+                self._add(
                     SubConstraint(TCon(actual_cls, ()), TCon(expected_origin, ()), loc),
                 )
 
@@ -363,7 +373,13 @@ class ConstraintGenerator:
             return TCon(type(None), ())
 
         if isinstance(value, Node):
-            return_type = self._generate_node(value, loc)
+            child_gen = NodeConstraintGenerator(
+                loc,
+                self._program,
+                self._return_type_cache,
+            )
+            child_constraints, return_type = child_gen.generate(value)
+            self._constraints.extend(child_constraints)
             return TCon(Node, (return_type,))
 
         if isinstance(value, Ref):
@@ -434,6 +450,50 @@ class ConstraintGenerator:
                     return self._python_type_to_type(return_type)
 
         return TTop()
+
+
+class ConstraintGenerator:
+    """Generates type constraints from Programs.
+
+    This class handles program-level concerns:
+    - Iterating through program nodes
+    - Managing the return type cache
+    - Coordinating NodeConstraintGenerator instances
+    """
+
+    def __init__(self, program: Program) -> None:
+        self._program = program
+        self._return_type_cache: dict[str, TExp] = {}
+
+    def generate(self) -> list[Constraint]:
+        """Generate constraints for the program."""
+        constraints: list[Constraint] = []
+        nodes_loc = Location("nodes")
+
+        # Generate constraints for all named nodes
+        for node_id, node in self._program.nodes.items():
+            node_loc = nodes_loc.index(node_id)
+            gen = NodeConstraintGenerator(
+                node_loc,
+                self._program,
+                self._return_type_cache,
+            )
+            node_constraints, return_type = gen.generate(node)
+            constraints.extend(node_constraints)
+            self._return_type_cache[node_id] = return_type
+
+        # Generate constraints for root
+        root_loc = Location("root")
+        root_node = self._program.get_root_node()
+        gen = NodeConstraintGenerator(
+            root_loc,
+            self._program,
+            self._return_type_cache,
+        )
+        root_constraints, _ = gen.generate(root_node)
+        constraints.extend(root_constraints)
+
+        return constraints
 
 
 def generate_constraints(program: Program) -> list[Constraint]:
