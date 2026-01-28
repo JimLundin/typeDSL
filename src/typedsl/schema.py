@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import types
+import typing
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields
 from decimal import Decimal
@@ -46,6 +47,7 @@ from typedsl.types import (
     TupleType,
     TypeDef,
     TypeParameter,
+    TypeParameterRef,
     UnionType,
     substitute_type_params,
 )
@@ -99,6 +101,29 @@ class NodeSchema:
     fields: tuple[FieldSchema, ...]
 
 
+def _extract_typevar_default(typevar: TypeVar) -> TypeDef | None:
+    """Extract the default from a TypeVar (PEP 696).
+
+    Returns:
+        None if no default is specified
+        TypeParameterRef if default references another TypeVar
+        Extracted TypeDef for concrete default types
+
+    """
+    default = typevar.__default__
+
+    # NoDefault sentinel means no default was specified
+    if default is typing.NoDefault:
+        return None
+
+    # If default is another TypeVar, create a reference to it
+    if isinstance(default, TypeVar):
+        return TypeParameterRef(name=default.__name__)
+
+    # Otherwise, extract the default type recursively
+    return extract_type(default)
+
+
 def extract_type(py_type: Any) -> TypeDef:
     """Convert Python type annotation to TypeDef."""
     origin = get_origin(py_type)
@@ -107,9 +132,11 @@ def extract_type(py_type: Any) -> TypeDef:
     # Handle TypeVar
     if isinstance(py_type, TypeVar):
         bound = py_type.__bound__
+        default = _extract_typevar_default(py_type)
         return TypeParameter(
             name=py_type.__name__,
             bound=extract_type(bound) if bound is not None else None,
+            default=default,
         )
 
     # Expand PEP 695 type aliases
@@ -155,6 +182,11 @@ def extract_type(py_type: Any) -> TypeDef:
         return LiteralType(values=args)
 
     # Node types
+    # NOTE: Parameterized generic nodes don't correctly compute return type.
+    # Container[str] where class Container[T](Node[list[T]]) should give
+    # NodeType(returns=ListType(element=StrType())), but currently gives
+    # NodeType(returns=StrType()) because we take args[0] directly instead
+    # of substituting T=str into the actual return type list[T].
     if origin is not None and isinstance(origin, type) and issubclass(origin, Node):
         # Parameterized node: Node[T] or SpecificNode[T]
         if origin is Node:
@@ -224,10 +256,12 @@ def node_schema(cls: type[Node[Any]]) -> NodeSchema:
         for param in cls.__type_params__:
             if isinstance(param, TypeVar):
                 bound = getattr(param, "__bound__", None)
+                default = _extract_typevar_default(param)
                 type_params.append(
                     TypeParameter(
                         name=param.__name__,
                         bound=extract_type(bound) if bound is not None else None,
+                        default=default,
                     ),
                 )
 

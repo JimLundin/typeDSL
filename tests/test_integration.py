@@ -20,6 +20,7 @@ from typedsl.types import (
     RefType,
     ReturnType,
     StrType,
+    TypeParameterRef,
 )
 
 
@@ -245,6 +246,31 @@ class TestGenericNodeWorkflow:
         field_names = [f.name for f in schema.fields]
         assert "value" in field_names
         assert "label" in field_names
+
+    def test_generic_node_with_type_parameter_defaults(self) -> None:
+        """Test extracting schema from generic node with PEP 696 defaults.
+
+        Example: class BinaryOp[T, R = T] where R defaults to T.
+        """
+
+        class BinaryOp[T, R = T](Node[R], tag="binop_default_test"):
+            left: Node[T]
+            right: Node[T]
+
+        # Extract schema
+        schema = node_schema(BinaryOp)
+
+        # Verify type parameters
+        assert len(schema.type_params) == 2
+
+        # First param: T (no default)
+        assert schema.type_params[0].name == "T"
+        assert schema.type_params[0].default is None
+
+        # Second param: R (defaults to T)
+        assert schema.type_params[1].name == "R"
+        assert isinstance(schema.type_params[1].default, TypeParameterRef)
+        assert schema.type_params[1].default.name == "T"
 
 
 class TestSchemaRegistryWorkflow:

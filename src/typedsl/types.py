@@ -175,10 +175,20 @@ class UnionType(TypeDef, tag="union"):
 
 
 class TypeParameter(TypeDef, tag="typeparam"):
-    """Type parameter declaration (e.g., T in class Foo[T])."""
+    """Type parameter declaration (e.g., T in class Foo[T]).
+
+    Attributes:
+        name: The type parameter name (e.g., "T")
+        bound: Optional upper bound constraint (e.g., int | float)
+        default: Optional default type (PEP 696). Can be a concrete type or
+            a TypeParameterRef when the default references another type parameter
+            (e.g., class Foo[T, R = T] has R's default as TypeParameterRef("T"))
+
+    """
 
     name: str
     bound: TypeDef | None = None
+    default: TypeDef | None = None
 
 
 class TypeParameterRef(TypeDef, tag="typeparamref"):
