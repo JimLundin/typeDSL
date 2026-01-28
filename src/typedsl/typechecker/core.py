@@ -6,33 +6,32 @@ from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
-class Top:
+class TTop:
     """Supertype of everything."""
 
 
 @dataclass(frozen=True)
-class Bottom:
+class TBot:
     """Subtype of everything."""
 
 
 @dataclass(frozen=True)
-class TypeVar:
+class TVar:
     """A type variable that can be unified with other types."""
 
     name: str
-    default: Type | None = None
+    default: TExp | None = None
 
 
 @dataclass(frozen=True)
-class TypeCon:
+class TCon:
     """A type constructor with optional type arguments."""
 
-    constructor: type  # actual Python type: int, str, list, etc.
-    args: tuple[Type, ...] = ()
+    con: type  # actual Python type: int, str, list, etc.
+    args: tuple[TExp, ...] = ()
 
 
-# Union type for all type representations
-Type = TypeVar | TypeCon | Top | Bottom
+type TExp = TVar | TCon | TTop | TBot
 
 
 @dataclass(frozen=True)
@@ -54,8 +53,8 @@ class Location:
 class EqConstraint:
     """Equality constraint: left = right."""
 
-    left: Type
-    right: Type
+    left: TExp
+    right: TExp
     location: Location
 
 
@@ -63,19 +62,18 @@ class EqConstraint:
 class SubConstraint:
     """Subtype constraint: sub <: sup."""
 
-    sub: Type
-    sup: Type
+    sub: TExp
+    sup: TExp
     location: Location
 
 
-# Union type for all constraints
-Constraint = EqConstraint | SubConstraint
+type Constraint = EqConstraint | SubConstraint
 
 
 @dataclass
-class TypeVarInfo:
+class TVarInfo:
     """Tracks bounds for a type variable during solving."""
 
-    lower: Type = field(default_factory=Bottom)  # T must be supertype of this
-    upper: Type = field(default_factory=Top)  # T must be subtype of this
-    default: Type | None = None
+    lower: TExp = field(default_factory=TBot)
+    upper: TExp = field(default_factory=TTop)
+    default: TExp | None = None

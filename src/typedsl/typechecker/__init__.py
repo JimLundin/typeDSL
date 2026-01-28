@@ -1,16 +1,16 @@
 """Constraint-based type checker using unification."""
 
 from typedsl.typechecker.core import (
-    Bottom,
     Constraint,
     EqConstraint,
     Location,
     SubConstraint,
-    Top,
-    Type,
-    TypeCon,
-    TypeVar,
-    TypeVarInfo,
+    TBot,
+    TCon,
+    TExp,
+    TTop,
+    TVar,
+    TVarInfo,
 )
 from typedsl.typechecker.generate import (
     ConstraintGenerator,
@@ -32,7 +32,6 @@ from typedsl.typechecker.solver import (
 )
 
 __all__ = [
-    "Bottom",
     # Constraints
     "Constraint",
     "ConstraintGenerator",
@@ -40,15 +39,16 @@ __all__ = [
     "Location",
     "Solver",
     "SubConstraint",
-    "Top",
     # Core types
-    "Type",
-    "TypeCon",
+    "TBot",
+    "TCon",
+    "TExp",
+    "TTop",
+    "TVar",
+    # Solver state
+    "TVarInfo",
     # Errors
     "TypeError",
-    "TypeVar",
-    # Solver state
-    "TypeVarInfo",
     # Constraint generation
     "generate_constraints",
     "is_subtype",
