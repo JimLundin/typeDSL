@@ -1,5 +1,7 @@
 """Comprehensive tests for the constraint-based type checker."""
 
+import pytest
+
 from typedsl.ast import Program
 from typedsl.nodes import Child, Node, Ref
 from typedsl.typechecker import (
@@ -816,8 +818,8 @@ class TestRefResolution:
         result = typecheck(constraints)
         assert isinstance(result, TypeError)
 
-    def test_invalid_ref_fails(self) -> None:
-        """Ref to non-existent node fails."""
+    def test_invalid_ref_raises_key_error(self) -> None:
+        """Ref to non-existent node raises KeyError (structural error)."""
         prog = Program(
             root=Add(
                 left=Ref[Node[int]](id="nonexistent"),
@@ -825,10 +827,9 @@ class TestRefResolution:
             ),
             nodes={},
         )
-        constraints = generate_constraints(prog)
-        result = typecheck(constraints)
-        # Invalid ref generates Bottom = Top constraint which always fails
-        assert isinstance(result, TypeError)
+        # Invalid ref is a structural issue, not a type error
+        with pytest.raises(KeyError):
+            generate_constraints(prog)
 
     def test_ref_chain_type_checks(self) -> None:
         """Chain of refs with consistent types passes."""

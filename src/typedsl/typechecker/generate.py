@@ -20,10 +20,8 @@ from typing import (
 from typedsl.nodes import Node, Ref
 from typedsl.typechecker.core import (
     Constraint,
-    EqConstraint,
     Location,
     SubConstraint,
-    TBot,
     TCon,
     TExp,
     TTop,
@@ -126,11 +124,8 @@ class ConstraintGenerator:
             self._node_return_types[node_id] = return_type
 
         root_loc = Location("root")
-        if isinstance(self._program.root, Ref):
-            if self._program.root.id not in self._program.nodes:
-                self.add(EqConstraint(TBot(), TTop(), root_loc))
-        else:
-            self._generate_node(self._program.root, root_loc)
+        root_node = self._program.get_root_node()
+        self._generate_node(root_node, root_loc)
 
         return self._constraints
 
@@ -297,23 +292,22 @@ class ConstraintGenerator:
         """Generate constraints for a Ref value in a node field."""
         ref_id = ref.id
 
+        # Check cache first, otherwise resolve and generate constraints
         if ref_id in self._node_return_types:
             actual_return_type = self._node_return_types[ref_id]
-            resolved_node = self._program.nodes.get(ref_id)
-        elif ref_id in self._program.nodes:
-            resolved_node = self._program.nodes[ref_id]
+        else:
             ref_loc = Location("nodes").index(ref_id)
+            resolved_node = self._program.resolve(ref)
             actual_return_type = self._generate_node(resolved_node, ref_loc)
             self._node_return_types[ref_id] = actual_return_type
-        else:
-            self.add(EqConstraint(TBot(), TTop(), loc))
-            return
 
         if args:
             expected_return_type = self._python_type_to_type(args[0])
             self.add(SubConstraint(actual_return_type, expected_return_type, loc))
 
-        if expected_origin is not Node and resolved_node is not None:
+        # Check if resolved node class matches expected origin
+        if expected_origin is not Node:
+            resolved_node = self._program.resolve(ref)
             actual_cls = type(resolved_node)
             if not issubclass(actual_cls, expected_origin):
                 self.add(
